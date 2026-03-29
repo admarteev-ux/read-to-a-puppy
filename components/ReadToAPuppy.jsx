@@ -2,10 +2,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ─────────────────────────────────────────────
-   READ TO A PUPPY — MVP v3
-   • Ultra-smooth tail (never jerky)
-   • Much slower sleep progression
-   • Cuter, friendlier puppy face
+   READ TO A PUPPY — MVP v4
+   • Audio enabled
+   • SVG icons instead of emoji (cross-device)
+   • Ultra-smooth tail + slow sleep + cute face
    ───────────────────────────────────────────── */
 
 const fmt = (s) => {
@@ -13,6 +13,26 @@ const fmt = (s) => {
   const sec = s % 60;
   return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 };
+
+/* ── SVG button icons (render same on all devices) ── */
+const PlayIcon = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    <path d="M6 4.83c0-.96 1.06-1.54 1.88-1.02l10.09 6.17c.76.46.76 1.58 0 2.04L7.88 18.19A1.2 1.2 0 0 1 6 17.17V4.83Z" />
+  </svg>
+);
+
+const PauseIcon = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    <rect x="5" y="3" width="5" height="18" rx="1.5" />
+    <rect x="14" y="3" width="5" height="18" rx="1.5" />
+  </svg>
+);
+
+const StopIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    <rect x="4" y="4" width="16" height="16" rx="2.5" />
+  </svg>
+);
 
 const Star = ({ x, y, size, delay }) => (
   <circle cx={x} cy={y} r={size} fill="#fffbe6" opacity="0"
@@ -59,7 +79,6 @@ const PillowBed = () => (
   </g>
 );
 
-/* Decorative lamp post — visual indicator only */
 const LampPost = ({ activeBtn }) => (
   <g>
     <defs>
@@ -91,41 +110,17 @@ const LampPost = ({ activeBtn }) => (
   </g>
 );
 
-/* ══════════════════════════════════════════
-   PUPPY v3 — Cuter + ultra-smooth tail
-   
-   Sleep curve: uses pow(2.5) so puppy stays
-   mostly awake for first 60% of time, then
-   gently drifts off in the last 40%.
-   
-   Tail: very gentle amplitude curve with
-   long CSS transition durations so changes
-   between frames are imperceptible.
-   
-   Face: bigger rounder eyes, bigger pupils
-   with larger shine spots, rounder head,
-   bigger cheek blush, smaller cuter nose,
-   wider smile, tiny heart on chest.
-   ══════════════════════════════════════════ */
 const Puppy = ({ sleepProgress, isIdle }) => {
-  // SLOW sleep curve: pow(2.5) keeps puppy awake longer
   const sleepCurve = Math.pow(sleepProgress, 2.5);
-  
   const eyeOpen = Math.max(0, 1 - sleepCurve * 1.15);
   const headDrop = sleepCurve * 14;
   const bodyDrop = sleepCurve * 10;
   const tongueShow = eyeOpen > 0.4;
-
-  // ULTRA-SMOOTH tail: very gentle changes, long speed ramp
-  // idle: gentle friendly wag (15deg, 0.7s)
-  // session: starts at 12deg, eases to 2deg over full duration
-  // speed: 0.7s → 2.5s (very slow ramp, never jumpy)
   const wagDeg = isIdle ? 15 : Math.max(2, 12 * Math.pow(1 - sleepProgress, 2));
   const wagSpeed = isIdle ? 0.7 : 0.7 + sleepProgress * 1.8;
 
   return (
     <g style={{ transform: `translateY(${bodyDrop}px)`, transition: "transform 8s ease" }}>
-      {/* ── Tail ── */}
       <g style={{
         transformOrigin: "448px 310px",
         animation: `tailWag ${wagSpeed}s ease-in-out infinite alternate`,
@@ -134,78 +129,50 @@ const Puppy = ({ sleepProgress, isIdle }) => {
         <path d="M 448 305 Q 488 265 502 240 Q 510 225 504 220" stroke="#d4a24c" strokeWidth="14" strokeLinecap="round" fill="none" />
         <path d="M 448 305 Q 488 265 502 240 Q 510 225 504 220" stroke="#e8be6a" strokeWidth="8" strokeLinecap="round" fill="none" />
       </g>
-
-      {/* ── Body ── */}
       <ellipse cx="400" cy="350" rx="95" ry="60" fill="#d4a24c" />
       <ellipse cx="400" cy="345" rx="90" ry="55" fill="#e2b85c" />
       <ellipse cx="395" cy="360" rx="55" ry="30" fill="#ecdba0" opacity="0.5" />
-      
-      {/* ── Tiny heart on chest ── */}
       <g transform="translate(370, 340) scale(0.35)" opacity="0.3">
         <path d="M 0,-8 C -8,-18 -22,-8 -14,4 L 0,16 L 14,4 C 22,-8 8,-18 0,-8 Z" fill="#f0a0a0" />
       </g>
-
-      {/* ── Front paws (rounder, cuter) ── */}
       <ellipse cx="348" cy="400" rx="24" ry="14" fill="#d4a24c" />
       <ellipse cx="348" cy="398" rx="22" ry="12" fill="#e8c878" />
       <ellipse cx="418" cy="400" rx="24" ry="14" fill="#d4a24c" />
       <ellipse cx="418" cy="398" rx="22" ry="12" fill="#e8c878" />
-      {/* Cute paw beans */}
       <circle cx="340" cy="403" r="4.5" fill="#dbb060" opacity="0.5" />
       <circle cx="348" cy="405" r="4.5" fill="#dbb060" opacity="0.5" />
       <circle cx="356" cy="403" r="4.5" fill="#dbb060" opacity="0.5" />
       <circle cx="410" cy="403" r="4.5" fill="#dbb060" opacity="0.5" />
       <circle cx="418" cy="405" r="4.5" fill="#dbb060" opacity="0.5" />
       <circle cx="426" cy="403" r="4.5" fill="#dbb060" opacity="0.5" />
-
-      {/* ── Head ── */}
       <g style={{ transform: `translateY(${headDrop}px)`, transition: "transform 8s ease" }}>
-        {/* Neck / chest fur */}
         <ellipse cx="355" cy="310" rx="52" ry="48" fill="#e2b85c" />
         <ellipse cx="355" cy="320" rx="38" ry="28" fill="#ecdba0" opacity="0.5" />
-
-        {/* Head (rounder for cuteness) */}
         <ellipse cx="352" cy="262" rx="56" ry="52" fill="#e2b85c" />
         <ellipse cx="352" cy="275" rx="40" ry="34" fill="#ecdba0" opacity="0.45" />
-
-        {/* ── Ears (rounder, floppier) ── */}
         <ellipse cx="298" cy="248" rx="24" ry="36" fill="#c89838" transform="rotate(-18 298 248)" />
         <ellipse cx="301" cy="250" rx="18" ry="30" fill="#d4a24c" transform="rotate(-18 301 250)" />
         <ellipse cx="406" cy="248" rx="24" ry="36" fill="#c89838" transform="rotate(18 406 248)" />
         <ellipse cx="403" cy="250" rx="18" ry="30" fill="#d4a24c" transform="rotate(18 403 250)" />
-
-        {/* ── Eyes (BIGGER, rounder, cuter) ── */}
         <ellipse cx="332" cy="258" rx="16" ry={16 * eyeOpen} fill="white" style={{ transition: "ry 6s ease" }} />
         <ellipse cx="372" cy="258" rx="16" ry={16 * eyeOpen} fill="white" style={{ transition: "ry 6s ease" }} />
         {eyeOpen > 0.15 && <>
-          {/* Bigger pupils */}
           <circle cx="334" cy="260" r={10 * Math.min(1, eyeOpen)} fill="#3e2a15" style={{ transition: "r 6s ease" }} />
           <circle cx="374" cy="260" r={10 * Math.min(1, eyeOpen)} fill="#3e2a15" style={{ transition: "r 6s ease" }} />
-          {/* Large shine spots (makes eyes look alive & cute) */}
           <circle cx="338" cy="256" r={4 * Math.min(1, eyeOpen)} fill="white" opacity="0.9" style={{ transition: "r 6s ease" }} />
           <circle cx="378" cy="256" r={4 * Math.min(1, eyeOpen)} fill="white" opacity="0.9" style={{ transition: "r 6s ease" }} />
-          {/* Secondary smaller shine */}
           <circle cx="331" cy="263" r={2 * Math.min(1, eyeOpen)} fill="white" opacity="0.6" style={{ transition: "r 6s ease" }} />
           <circle cx="371" cy="263" r={2 * Math.min(1, eyeOpen)} fill="white" opacity="0.6" style={{ transition: "r 6s ease" }} />
         </>}
-        {/* Eyelids (close from top) */}
         {eyeOpen < 0.95 && <>
           <ellipse cx="332" cy={258 - 16 * eyeOpen} rx="18" ry={18 * (1 - eyeOpen)} fill="#daa84c" style={{ transition: "all 6s ease" }} />
           <ellipse cx="372" cy={258 - 16 * eyeOpen} rx="18" ry={18 * (1 - eyeOpen)} fill="#daa84c" style={{ transition: "all 6s ease" }} />
         </>}
-
-        {/* Happy eyebrow arches */}
         <path d="M 316 246 Q 332 239 348 246" stroke="#c89838" strokeWidth="2" fill="none" opacity={eyeOpen > 0.5 ? 0.5 : 0} style={{ transition: "opacity 4s" }} />
         <path d="M 356 246 Q 372 239 388 246" stroke="#c89838" strokeWidth="2" fill="none" opacity={eyeOpen > 0.5 ? 0.5 : 0} style={{ transition: "opacity 4s" }} />
-
-        {/* ── Nose (smaller, cuter) ── */}
         <ellipse cx="352" cy="282" rx="8" ry="5.5" fill="#3e2a15" />
         <ellipse cx="350" cy="280.5" rx="3" ry="2" fill="#5a3e24" opacity="0.6" />
-
-        {/* ── Mouth (wider, friendlier smile) ── */}
         <path d="M 340 287 Q 346 293 352 288 Q 358 293 364 287" stroke="#3e2a15" strokeWidth="1.5" fill="none" />
-
-        {/* Tongue */}
         {tongueShow && (
           <g opacity={eyeOpen > 0.4 ? 1 : 0} style={{ transition: "opacity 4s" }}>
             <ellipse cx="352" cy="295" rx="7" ry="10" fill="#f0a0a0" />
@@ -213,12 +180,8 @@ const Puppy = ({ sleepProgress, isIdle }) => {
             <line x1="352" y1="289" x2="352" y2="300" stroke="#e08080" strokeWidth="0.7" />
           </g>
         )}
-
-        {/* ── Cheek blush (BIGGER, more visible) ── */}
         <ellipse cx="310" cy="275" rx="14" ry="8" fill="#f0b0b0" opacity={0.35 * eyeOpen} style={{ transition: "opacity 4s" }} />
         <ellipse cx="394" cy="275" rx="14" ry="8" fill="#f0b0b0" opacity={0.35 * eyeOpen} style={{ transition: "opacity 4s" }} />
-
-        {/* ── Zzz (appears later with slow curve) ── */}
         {sleepCurve > 0.6 && (
           <g opacity={Math.min(1, (sleepCurve - 0.6) * 2.5)} style={{ transition: "opacity 4s" }}>
             <text x="405" y="225" fontSize="18" fill="#c8daf0" fontFamily="'Quicksand', sans-serif" fontWeight="700" style={{ animation: "floatUp 3.5s ease-in-out infinite" }}>z</text>
@@ -240,10 +203,6 @@ const SpeechBubble = ({ show }) => (
   </g>
 );
 
-/* ═══════════════════════
-   MAIN
-   ═══════════════════════ */
-
 const PRESETS = [
   { label: "10 min", seconds: 600 },
   { label: "20 min", seconds: 1200 },
@@ -258,7 +217,6 @@ export default function ReadToAPuppy() {
   const intervalRef = useRef(null);
   const audioRef = useRef(null);
 
-  // Sleep progress 0→1 (linear time), Puppy applies pow(2.5) curve internally
   const sleepProgress = state === "idle" ? 0 : state === "completed" ? 1 : Math.min(1, elapsed / duration);
   const activeBtn = state === "running" ? "green" : state === "paused" ? "yellow" : state === "completed" ? "red" : null;
   const remaining = Math.max(0, duration - elapsed);
@@ -328,7 +286,7 @@ export default function ReadToAPuppy() {
           width:80px; height:80px; border-radius:50%;
           border:3px solid rgba(255,255,255,0.15);
           display:flex; align-items:center; justify-content:center;
-          flex-direction:column; gap:2px;
+          flex-direction:column; gap:4px;
           font-size:12px; font-weight:700; letter-spacing:0.5px;
           cursor:pointer; transition:all 0.3s ease;
           background:rgba(255,255,255,0.06);
@@ -338,7 +296,6 @@ export default function ReadToAPuppy() {
           font-family:'Quicksand',sans-serif;
           color:#a0b8d0;
         }
-        .ctrl-btn .icon { font-size:28px; line-height:1; }
         .ctrl-btn:active { transform:scale(0.92); }
         .ctrl-btn:disabled { opacity:0.25; cursor:default; }
         .ctrl-btn:disabled:active { transform:none; }
@@ -398,8 +355,9 @@ export default function ReadToAPuppy() {
         }
       `}</style>
 
+      {/* ── Audio: puppy voice line ── */}
       <audio ref={audioRef} preload="auto">
-        {/* <source src="/audio/read-to-me.mp3" type="audio/mpeg" /> */}
+        <source src="/audio/read-to-me.mp3" type="audio/mpeg" />
       </audio>
 
       <h1 className="site-title" style={{ marginBottom: 8 }}>🌙 Read to a Puppy</h1>
@@ -448,13 +406,13 @@ export default function ReadToAPuppy() {
 
       <div className="ctrl-row">
         <button className={`ctrl-btn ${activeBtn === "green" ? "green-on" : "green-idle"}`} onClick={handleStart} disabled={state === "completed"}>
-          <span className="icon">▶</span><span>Start</span>
+          <PlayIcon /><span>Start</span>
         </button>
         <button className={`ctrl-btn ${activeBtn === "yellow" ? "yellow-on" : "yellow-idle"}`} onClick={handlePause} disabled={state !== "running"}>
-          <span className="icon">⏸</span><span>Pause</span>
+          <PauseIcon /><span>Pause</span>
         </button>
         <button className={`ctrl-btn ${activeBtn === "red" ? "red-on" : "red-idle"}`} onClick={handleStop} disabled={state === "idle"}>
-          <span className="icon">⏹</span><span>Stop</span>
+          <StopIcon /><span>Stop</span>
         </button>
       </div>
 
