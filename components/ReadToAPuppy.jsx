@@ -111,20 +111,23 @@ const LampPost = ({ activeBtn }) => (
 );
 
 const Puppy = ({ sleepProgress, isIdle }) => {
-  const sleepCurve = Math.pow(sleepProgress, 2.5);
-  const eyeOpen = Math.max(0, 1 - sleepCurve * 1.15);
-  const headDrop = sleepCurve * 14;
-  const bodyDrop = sleepCurve * 10;
+  // LINEAR eye closing: eyes fully open at 0%, fully closed at 85% of timer
+  const eyeOpen = Math.max(0, 1 - sleepProgress * 1.18);
+  const headDrop = sleepProgress * 12;
+  const bodyDrop = sleepProgress * 8;
   const tongueShow = eyeOpen > 0.4;
-  const wagDeg = isIdle ? 15 : Math.max(2, 12 * Math.pow(1 - sleepProgress, 2));
-  const wagSpeed = isIdle ? 0.7 : 0.7 + sleepProgress * 1.8;
+
+  // TAIL: only amplitude changes via CSS variable, speed is FIXED
+  // This prevents browser from restarting the animation on re-render
+  const wagDeg = isIdle ? 15 : Math.max(2, 14 * (1 - sleepProgress));
 
   return (
     <g style={{ transform: `translateY(${bodyDrop}px)`, transition: "transform 8s ease" }}>
       <g style={{
         transformOrigin: "448px 310px",
-        animation: `tailWag ${wagSpeed}s ease-in-out infinite alternate`,
+        animation: "tailWag 1.2s ease-in-out infinite alternate",
         "--wag-deg": `${wagDeg}deg`,
+        transition: "--wag-deg 5s ease",
       }}>
         <path d="M 448 305 Q 488 265 502 240 Q 510 225 504 220" stroke="#d4a24c" strokeWidth="14" strokeLinecap="round" fill="none" />
         <path d="M 448 305 Q 488 265 502 240 Q 510 225 504 220" stroke="#e8be6a" strokeWidth="8" strokeLinecap="round" fill="none" />
@@ -182,8 +185,8 @@ const Puppy = ({ sleepProgress, isIdle }) => {
         )}
         <ellipse cx="310" cy="275" rx="14" ry="8" fill="#f0b0b0" opacity={0.35 * eyeOpen} style={{ transition: "opacity 4s" }} />
         <ellipse cx="394" cy="275" rx="14" ry="8" fill="#f0b0b0" opacity={0.35 * eyeOpen} style={{ transition: "opacity 4s" }} />
-        {sleepCurve > 0.6 && (
-          <g opacity={Math.min(1, (sleepCurve - 0.6) * 2.5)} style={{ transition: "opacity 4s" }}>
+        {sleepProgress > 0.75 && (
+          <g opacity={Math.min(1, (sleepProgress - 0.75) * 4)} style={{ transition: "opacity 4s" }}>
             <text x="405" y="225" fontSize="18" fill="#c8daf0" fontFamily="'Quicksand', sans-serif" fontWeight="700" style={{ animation: "floatUp 3.5s ease-in-out infinite" }}>z</text>
             <text x="420" y="210" fontSize="14" fill="#c8daf0" fontFamily="'Quicksand', sans-serif" fontWeight="700" style={{ animation: "floatUp 3.5s ease-in-out 0.7s infinite" }}>z</text>
             <text x="432" y="197" fontSize="11" fill="#c8daf0" fontFamily="'Quicksand', sans-serif" fontWeight="700" style={{ animation: "floatUp 3.5s ease-in-out 1.4s infinite" }}>z</text>
