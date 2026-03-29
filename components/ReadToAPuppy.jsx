@@ -111,10 +111,14 @@ const LampPost = ({ activeBtn }) => (
 );
 
 const Puppy = ({ sleepProgress, isIdle }) => {
-  // LINEAR eye closing: eyes fully open at 0%, fully closed at 85% of timer
-  const eyeOpen = Math.max(0, 1 - sleepProgress * 1.18);
-  const headDrop = sleepProgress * 12;
-  const bodyDrop = sleepProgress * 8;
+  // Gentle sleep curve: pow(1.6) keeps puppy more awake in first half
+  // At 50% time → eyeOpen ≈ 0.6 (40% closed)
+  // At 75% time → eyeOpen ≈ 0.25 (75% closed)  
+  // At 90% time → fully closed
+  const sleepCurve = Math.pow(sleepProgress, 1.6);
+  const eyeOpen = Math.max(0, 1 - sleepCurve * 1.12);
+  const headDrop = sleepCurve * 12;
+  const bodyDrop = sleepCurve * 8;
   const tongueShow = eyeOpen > 0.4;
 
   // TAIL: only amplitude changes via CSS variable, speed is FIXED
