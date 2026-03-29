@@ -233,26 +233,17 @@ export default function ReadToAPuppy() {
     return () => clearInterval(intervalRef.current);
   }, [state, duration]);
 
-  const playAudio = useCallback(() => {
-    if (audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.play().catch(() => {}); }
-  }, []);
-
-  const startSession = useCallback(() => {
-    setElapsed(0); setShowBubble(true);
-    playAudio();
-    setTimeout(() => setShowBubble(false), 5000);
-    setState("running");
-  }, [playAudio]);
-
   const handleStart = useCallback(() => {
     if (state === "completed") return;
     if (state === "idle") {
-      startSession();
+      setElapsed(0); setShowBubble(true);
+      if (audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.play().catch(() => {}); }
+      setTimeout(() => setShowBubble(false), 5000);
+      setState("running");
     } else if (state === "paused") {
-      // Resume without audio replay
       setState("running");
     }
-  }, [state, startSession]);
+  }, [state]);
 
   const handlePause = useCallback(() => { if (state === "running") setState("paused"); }, [state]);
 
@@ -260,10 +251,10 @@ export default function ReadToAPuppy() {
     if (state === "running" || state === "paused") {
       clearInterval(intervalRef.current); setState("completed"); setShowBubble(false);
     } else if (state === "completed") {
-      // "Read again" — reset and immediately start new session
-      startSession();
+      // "Read again" — just reset to idle, let user pick time and press Start
+      setState("idle"); setElapsed(0); setShowBubble(false);
     }
-  }, [state, startSession]);
+  }, [state]);
 
   const stars = useRef(Array.from({ length: 50 }, () => ({
     x: Math.random() * 800, y: Math.random() * 200,
