@@ -233,16 +233,26 @@ export default function ReadToAPuppy() {
     return () => clearInterval(intervalRef.current);
   }, [state, duration]);
 
+  const playAudio = useCallback(() => {
+    if (audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.play().catch(() => {}); }
+  }, []);
+
+  const startSession = useCallback(() => {
+    setElapsed(0); setShowBubble(true);
+    playAudio();
+    setTimeout(() => setShowBubble(false), 5000);
+    setState("running");
+  }, [playAudio]);
+
   const handleStart = useCallback(() => {
     if (state === "completed") return;
     if (state === "idle") {
-      setElapsed(0); setShowBubble(true);
-      if (audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.play().catch(() => {}); }
-      setTimeout(() => setShowBubble(false), 5000);
+      startSession();
+    } else if (state === "paused") {
+      // Resume without audio replay
+      setState("running");
     }
-    if (state === "paused") { setShowBubble(true); setTimeout(() => setShowBubble(false), 3000); }
-    setState("running");
-  }, [state]);
+  }, [state, startSession]);
 
   const handlePause = useCallback(() => { if (state === "running") setState("paused"); }, [state]);
 
@@ -250,9 +260,10 @@ export default function ReadToAPuppy() {
     if (state === "running" || state === "paused") {
       clearInterval(intervalRef.current); setState("completed"); setShowBubble(false);
     } else if (state === "completed") {
-      setState("idle"); setElapsed(0); setShowBubble(false);
+      // "Read again" — reset and immediately start new session
+      startSession();
     }
-  }, [state]);
+  }, [state, startSession]);
 
   const stars = useRef(Array.from({ length: 50 }, () => ({
     x: Math.random() * 800, y: Math.random() * 200,
