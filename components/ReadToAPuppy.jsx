@@ -46,39 +46,39 @@ function getPuppyOpacities(elapsedSec) {
   const t = Math.min(120, elapsedSec);
   const opacities = [0, 0, 0, 0, 0];
 
-  /* Timeline: each stage holds clean, then quick 5s crossfade
-     0-18s   → stage 0 (awake) HOLD
-     18-23s  → crossfade 0→1
-     23-43s  → stage 1 (drowsy) HOLD
-     43-48s  → crossfade 1→2
-     48-68s  → stage 2 (sleepy) HOLD
-     68-73s  → crossfade 2→3
-     73-93s  → stage 3 (almost) HOLD
-     93-98s  → crossfade 3→4
+  /* Timeline: clean holds + quick 3s crossfade
+     0-20s   → stage 0 (awake) HOLD
+     20-23s  → crossfade 0→1
+     23-47s  → stage 1 (drowsy) HOLD
+     47-50s  → crossfade 1→2
+     50-72s  → stage 2 (sleepy) HOLD
+     72-75s  → crossfade 2→3
+     75-95s  → stage 3 (almost) HOLD
+     95-98s  → crossfade 3→4
      98+     → stage 4 (asleep) HOLD
   */
-  if (t <= 18) {
+  if (t <= 20) {
     opacities[0] = 1;
   } else if (t <= 23) {
-    const p = (t - 18) / 5;
+    const p = (t - 20) / 3;
     opacities[0] = 1 - p;
     opacities[1] = p;
-  } else if (t <= 43) {
+  } else if (t <= 47) {
     opacities[1] = 1;
-  } else if (t <= 48) {
-    const p = (t - 43) / 5;
+  } else if (t <= 50) {
+    const p = (t - 47) / 3;
     opacities[1] = 1 - p;
     opacities[2] = p;
-  } else if (t <= 68) {
+  } else if (t <= 72) {
     opacities[2] = 1;
-  } else if (t <= 73) {
-    const p = (t - 68) / 5;
+  } else if (t <= 75) {
+    const p = (t - 72) / 3;
     opacities[2] = 1 - p;
     opacities[3] = p;
-  } else if (t <= 93) {
+  } else if (t <= 95) {
     opacities[3] = 1;
   } else if (t <= 98) {
-    const p = (t - 93) / 5;
+    const p = (t - 95) / 3;
     opacities[3] = 1 - p;
     opacities[4] = p;
   } else {
@@ -269,7 +269,7 @@ export default function ReadToAPuppy() {
         }
         .puppy-layer {
           position: absolute; inset: 0; width: 100%; height: 100%;
-          object-fit: cover; transition: opacity 1.5s ease;
+          object-fit: cover;
         }
         .ctrl-row { display:flex; gap:20px; justify-content:center; margin:16px 0 10px; }
         .ctrl-btn {
@@ -313,13 +313,11 @@ export default function ReadToAPuppy() {
 
       {/* ── Scene: layered puppy images + living animations ── */}
       <div className="scene-container">
-        {/* Breathing + rocking wrapper */}
+        {/* Breathing + rocking wrapper — single animation, never restarts */}
         <div style={{
           position: "absolute", inset: 0,
           transformOrigin: "50% 85%",
-          animation: puppyElapsed < 70
-            ? "puppyBreathe 3.5s ease-in-out infinite, gentleRock 5s ease-in-out infinite, warmGlow 4s ease-in-out infinite"
-            : "puppyBreatheSlow 5s ease-in-out infinite, gentleRockSlow 8s ease-in-out infinite",
+          animation: "puppyBreathe 3.5s ease-in-out infinite, gentleRock 5s ease-in-out infinite, warmGlow 4s ease-in-out infinite",
         }}>
           {PUPPY_IMAGES.map((src, i) => (
             <img
@@ -357,28 +355,28 @@ export default function ReadToAPuppy() {
         {/* Floating Zzz when asleep */}
         {puppyElapsed > 90 && (
           <div style={{
-            position: "absolute", top: "32%", right: "28%",
+            position: "absolute", top: "28%", left: "38%",
             pointerEvents: "none",
             opacity: Math.min(1, (puppyElapsed - 90) / 30),
             transition: "opacity 3s ease",
           }}>
             <span style={{
-              position: "absolute", fontSize: "clamp(16px, 3.5vw, 24px)", color: "#a0c8f0",
+              position: "absolute", fontSize: "clamp(14px, 3vw, 20px)", color: "#a0c8f0",
               fontFamily: "'Baloo 2', sans-serif", fontWeight: 700,
               animation: "floatZzz 3s ease-in-out infinite",
               left: 0, top: 0,
             }}>Z</span>
             <span style={{
-              position: "absolute", fontSize: "clamp(12px, 2.5vw, 18px)", color: "#80b0e0",
+              position: "absolute", fontSize: "clamp(11px, 2.2vw, 16px)", color: "#80b0e0",
               fontFamily: "'Baloo 2', sans-serif", fontWeight: 700,
               animation: "floatZzz 3s ease-in-out 1s infinite",
-              left: 16, top: -8,
+              left: 14, top: -6,
             }}>z</span>
             <span style={{
-              position: "absolute", fontSize: "clamp(9px, 1.8vw, 14px)", color: "#6898c8",
+              position: "absolute", fontSize: "clamp(8px, 1.6vw, 12px)", color: "#6898c8",
               fontFamily: "'Baloo 2', sans-serif", fontWeight: 700,
               animation: "floatZzz 3s ease-in-out 2s infinite",
-              left: 28, top: -14,
+              left: 24, top: -12,
             }}>z</span>
           </div>
         )}
