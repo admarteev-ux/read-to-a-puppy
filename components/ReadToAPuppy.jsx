@@ -2,11 +2,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ─────────────────────────────────────────────
-   READ TO A PUPPY — v7 (Image-based puppy)
+   READ TO A PUPPY — v8 (Video state machine)
    
-   5 illustrated puppy states with smooth 
-   CSS crossfade. Eyes fully closed at 2min.
-   Lamp post, controls, timer, audio intact.
+   Architecture:
+   - Each sleep stage has a LOOP video (plays forever)
+   - Between stages, a TRANSITION video plays once
+   - Sequence: loop1 → trans1→2 → loop2 → trans2→3 → ...
+   - Falls back to static images if video not available
+   - Eyes fully closed at 2 minutes
    ───────────────────────────────────────────── */
 
 const fmt = (s) => {
@@ -25,76 +28,61 @@ const StopIcon = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2.5" /></svg>
 );
 
-/* ── Puppy image stages ── */
-const PUPPY_IMAGES = [
-  "/images/puppy-1-awake.png",    // 0: fully awake, tongue out
-  "/images/puppy-2-drowsy.png",   // 1: slightly drowsy, 75% open
-  "/images/puppy-3-sleepy.png",   // 2: half closed, 50% open
-  "/images/puppy-4-almost.png",   // 3: almost asleep, 20% open
-  "/images/puppy-5-asleep.png",   // 4: fully asleep, Zzz
+/* ── Media assets configuration ──
+   Set to null if video not yet available — will use fallback image */
+const STAGES = [
+  { loop: "/video/puppy-awake-loop.mp4",   fallbackImg: "/images/puppy-1-awake.png" },
+  { loop: "/video/puppy-drowsy-loop.mp4",  fallbackImg: "/images/puppy-2-drowsy.png" },
+  { loop: null,                             fallbackImg: "/images/puppy-3-sleepy.png" },
+  { loop: null,                             fallbackImg: "/images/puppy-4-almost.png" },
+  { loop: null,                             fallbackImg: "/images/puppy-5-asleep.png" },
 ];
 
-/* Calculate which stage and crossfade opacity based on elapsed seconds.
-   Timeline over 120 seconds:
-   0-20s   → stage 0 (awake)
-   20-45s  → crossfade 0→1 (getting drowsy)
-   45-70s  → crossfade 1→2 (half asleep)
-   70-95s  → crossfade 2→3 (almost asleep)
-   95-120s → crossfade 3→4 (fully asleep)
-*/
-function getPuppyOpacities(elapsedSec) {
-  const t = Math.min(120, elapsedSec);
-  const opacities = [0, 0, 0, 0, 0];
+const TRANSITIONS = [
+  "/video/puppy-transition-1-2.mp4",  // awake → drowsy
+  null,                                // drowsy → sleepy (not yet)
+  null,                                // sleepy → almost (not yet)
+  null,                                // almost → asleep (not yet)
+];
 
-  /* Timeline: clean holds + quick 3s crossfade
-     0-20s   → stage 0 (awake) HOLD
-     20-23s  → crossfade 0→1
-     23-47s  → stage 1 (drowsy) HOLD
-     47-50s  → crossfade 1→2
-     50-72s  → stage 2 (sleepy) HOLD
-     72-75s  → crossfade 2→3
-     75-95s  → stage 3 (almost) HOLD
-     95-98s  → crossfade 3→4
-     98+     → stage 4 (asleep) HOLD
-  */
-  if (t <= 20) {
-    opacities[0] = 1;
-  } else if (t <= 23) {
-    const p = (t - 20) / 3;
-    opacities[0] = 1 - p;
-    opacities[1] = p;
-  } else if (t <= 47) {
-    opacities[1] = 1;
-  } else if (t <= 50) {
-    const p = (t - 47) / 3;
-    opacities[1] = 1 - p;
-    opacities[2] = p;
-  } else if (t <= 72) {
-    opacities[2] = 1;
-  } else if (t <= 75) {
-    const p = (t - 72) / 3;
-    opacities[2] = 1 - p;
-    opacities[3] = p;
-  } else if (t <= 95) {
-    opacities[3] = 1;
-  } else if (t <= 98) {
-    const p = (t - 95) / 3;
-    opacities[3] = 1 - p;
-    opacities[4] = p;
-  } else {
-    opacities[4] = 1;
+/* Timeline: when each stage starts (in elapsed seconds)
+   0-20s    → stage 0 (awake loop)
+   20-25s   → transition 0→1
+   25-47s   → stage 1 (drowsy loop)
+   47-52s   → transition 1→2
+   52-72s   → stage 2 (sleepy loop)
+   72-77s   → transition 2→3
+   77-95s   → stage 3 (almost loop)
+   95-100s  → transition 3→4
+   100+     → stage 4 (asleep loop)
+*/
+const TIMELINE = [
+  { type: "loop",  stage: 0, start: 0,   end: 20  },
+  { type: "trans", index: 0, start: 20,  end: 25  },
+  { type: "loop",  stage: 1, start: 25,  end: 47  },
+  { type: "trans", index: 1, start: 47,  end: 52  },
+  { type: "loop",  stage: 2, start: 52,  end: 72  },
+  { type: "trans", index: 2, start: 72,  end: 77  },
+  { type: "loop",  stage: 3, start: 77,  end: 95  },
+  { type: "trans", index: 3, start: 95,  end: 100 },
+  { type: "loop",  stage: 4, start: 100, end: 9999 },
+];
+
+function getCurrentPhase(elapsedSec) {
+  const t = elapsedSec || 0;
+  for (let i = TIMELINE.length - 1; i >= 0; i--) {
+    if (t >= TIMELINE[i].start) return TIMELINE[i];
   }
-  return opacities;
+  return TIMELINE[0];
 }
 
-/* ── Lamp Post (decorative, reflects active button) ── */
+/* ── Lamp Post ── */
 const LampPost = ({ activeBtn }) => {
   const glow = (id, on) => on ? `url(#${id})` : "none";
   return (
     <div style={{
       position: "absolute", left: "4%", top: "28%", width: "8%", height: "60%",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      pointerEvents: "none",
+      display: "flex", flexDirection: "column", alignItems: "center", pointerEvents: "none",
     }}>
       <svg viewBox="0 0 60 300" style={{ width: "100%", height: "100%" }}>
         <defs>
@@ -102,28 +90,22 @@ const LampPost = ({ activeBtn }) => {
           <filter id="glY" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="6" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
           <filter id="glR" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="6" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
         </defs>
-        {/* Pole */}
         <rect x="25" y="10" width="10" height="280" rx="4" fill="#5a4a3a" />
         <rect x="27" y="10" width="6" height="280" rx="3" fill="#6b5a48" />
-        {/* Housing */}
         <rect x="12" y="15" width="36" height="110" rx="12" fill="#4a3a2e" />
         <rect x="15" y="18" width="30" height="104" rx="10" fill="#5a4a3a" />
-        {/* Top ornament */}
         <circle cx="30" cy="12" r="6" fill="#5a4a3a" />
         <circle cx="30" cy="12" r="3.5" fill="#6b5a48" />
-        {/* Green */}
         <g filter={glow("glG", activeBtn === "green")}>
           <circle cx="30" cy="42" r="12" fill={activeBtn === "green" ? "#66ff88" : "#2a5a35"} />
           <circle cx="30" cy="42" r="8" fill={activeBtn === "green" ? "#88ffaa" : "#3a7a45"} />
           {activeBtn === "green" && <circle cx="30" cy="42" r="18" fill="#66ff88" opacity="0.2" />}
         </g>
-        {/* Yellow */}
         <g filter={glow("glY", activeBtn === "yellow")}>
           <circle cx="30" cy="72" r="12" fill={activeBtn === "yellow" ? "#ffee55" : "#5a5530"} />
           <circle cx="30" cy="72" r="8" fill={activeBtn === "yellow" ? "#fff888" : "#7a7540"} />
           {activeBtn === "yellow" && <circle cx="30" cy="72" r="18" fill="#ffee55" opacity="0.2" />}
         </g>
-        {/* Red */}
         <g filter={glow("glR", activeBtn === "red")}>
           <circle cx="30" cy="102" r="12" fill={activeBtn === "red" ? "#ff5555" : "#5a2a2a"} />
           <circle cx="30" cy="102" r="8" fill={activeBtn === "red" ? "#ff8888" : "#7a3a3a"} />
@@ -134,29 +116,21 @@ const LampPost = ({ activeBtn }) => {
   );
 };
 
-/* ── Speech Bubble (HTML overlay) ── */
+/* ── Speech Bubble ── */
 const SpeechBubble = ({ show }) => (
   <div style={{
-    position: "absolute",
-    top: "8%", left: "50%", transform: "translateX(-50%)",
-    background: "rgba(255,255,255,0.94)",
-    borderRadius: 20, padding: "10px 24px",
-    fontFamily: "'Quicksand', sans-serif",
-    fontSize: "clamp(11px, 2.5vw, 15px)",
-    fontWeight: 600, color: "#4a3a2e",
-    textAlign: "center", lineHeight: 1.5,
-    opacity: show ? 1 : 0,
-    transition: "opacity 1s ease",
-    pointerEvents: "none",
-    whiteSpace: "nowrap",
-    boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+    position: "absolute", top: "8%", left: "50%", transform: "translateX(-50%)",
+    background: "rgba(255,255,255,0.94)", borderRadius: 20, padding: "10px 24px",
+    fontFamily: "'Quicksand', sans-serif", fontSize: "clamp(11px, 2.5vw, 15px)",
+    fontWeight: 600, color: "#4a3a2e", textAlign: "center", lineHeight: 1.5,
+    opacity: show ? 1 : 0, transition: "opacity 1s ease", pointerEvents: "none",
+    whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
   }}>
     Please read me a story<br />to help me fall asleep?
     <div style={{
       position: "absolute", bottom: -10, left: "35%",
       width: 0, height: 0,
-      borderLeft: "10px solid transparent",
-      borderRight: "10px solid transparent",
+      borderLeft: "10px solid transparent", borderRight: "10px solid transparent",
       borderTop: "12px solid rgba(255,255,255,0.94)",
     }} />
   </div>
@@ -177,15 +151,33 @@ export default function ReadToAPuppy() {
   const [elapsed, setElapsed] = useState(0);
   const [state, setState] = useState("idle");
   const [showBubble, setShowBubble] = useState(false);
+  const [activeMedia, setActiveMedia] = useState({ type: "loop", stage: 0 });
   const intervalRef = useRef(null);
   const audioRef = useRef(null);
+  const transVideoRef = useRef(null);
 
   const activeBtn = state === "running" ? "green" : state === "paused" ? "yellow" : state === "completed" ? "red" : null;
   const remaining = Math.max(0, duration - elapsed);
-
-  // Puppy stage opacities based on elapsed time
   const puppyElapsed = state === "idle" ? 0 : state === "completed" ? 120 : elapsed;
-  const opacities = getPuppyOpacities(puppyElapsed);
+
+  // Determine current phase from timeline
+  useEffect(() => {
+    const phase = getCurrentPhase(puppyElapsed);
+    setActiveMedia(prev => {
+      // Only update if phase actually changed
+      if (phase.type === prev.type &&
+          ((phase.type === "loop" && phase.stage === prev.stage) ||
+           (phase.type === "trans" && phase.index === prev.index))) {
+        return prev;
+      }
+      return phase;
+    });
+  }, [puppyElapsed]);
+
+  // When transition video ends, it naturally moves to next phase via elapsed time
+  const handleTransitionEnd = useCallback(() => {
+    // Transition finished — elapsed time will naturally advance to next loop phase
+  }, []);
 
   useEffect(() => {
     if (state === "running") {
@@ -218,8 +210,69 @@ export default function ReadToAPuppy() {
       clearInterval(intervalRef.current); setState("completed"); setShowBubble(false);
     } else if (state === "completed") {
       setState("idle"); setElapsed(0); setShowBubble(false);
+      setActiveMedia({ type: "loop", stage: 0 });
     }
   }, [state]);
+
+  // Build the visual layers
+  const renderMedia = () => {
+    const layers = [];
+
+    // Always render all loop stages (opacity controlled)
+    STAGES.forEach((s, i) => {
+      const isActive = activeMedia.type === "loop" && activeMedia.stage === i;
+      // Also show during adjacent transitions
+      const isTransOut = activeMedia.type === "trans" && activeMedia.index === i;
+      const isTransIn = activeMedia.type === "trans" && activeMedia.index === i - 1;
+      const show = isActive || isTransOut || isTransIn;
+      const opacity = isActive ? 1 : isTransOut ? 0.5 : isTransIn ? 0.5 : 0;
+
+      if (s.loop) {
+        layers.push(
+          <video
+            key={`loop-${i}`}
+            autoPlay loop muted playsInline
+            className="puppy-layer"
+            style={{ opacity, transition: "opacity 1.5s ease" }}
+          >
+            <source src={s.loop} type="video/mp4" />
+          </video>
+        );
+      } else {
+        layers.push(
+          <img
+            key={`img-${i}`}
+            src={s.fallbackImg}
+            alt={`Puppy stage ${i + 1}`}
+            className="puppy-layer"
+            style={{ opacity, transition: "opacity 1.5s ease" }}
+            draggable={false}
+          />
+        );
+      }
+    });
+
+    // Overlay transition video on top when active
+    if (activeMedia.type === "trans") {
+      const transSrc = TRANSITIONS[activeMedia.index];
+      if (transSrc) {
+        layers.push(
+          <video
+            key={`trans-${activeMedia.index}`}
+            ref={transVideoRef}
+            autoPlay muted playsInline
+            className="puppy-layer"
+            style={{ opacity: 1, zIndex: 10 }}
+            onEnded={handleTransitionEnd}
+          >
+            <source src={transSrc} type="video/mp4" />
+          </video>
+        );
+      }
+    }
+
+    return layers;
+  };
 
   return (
     <div style={{
@@ -231,41 +284,15 @@ export default function ReadToAPuppy() {
       <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=Baloo+2:wght@600;700&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes fadeInUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes puppyBreathe {
-          0%, 100% { transform: scaleY(1) scaleX(1); }
-          50% { transform: scaleY(1.012) scaleX(1.005); }
-        }
-        @keyframes puppyBreatheSlow {
-          0%, 100% { transform: scaleY(1) scaleX(1); }
-          50% { transform: scaleY(1.008) scaleX(1.003); }
-        }
-        @keyframes gentleRock {
-          0%, 100% { transform: rotate(0deg); }
-          25% { transform: rotate(0.4deg); }
-          75% { transform: rotate(-0.4deg); }
-        }
-        @keyframes gentleRockSlow {
-          0%, 100% { transform: rotate(0deg); }
-          25% { transform: rotate(0.2deg); }
-          75% { transform: rotate(-0.2deg); }
-        }
-        @keyframes warmGlow {
-          0%, 100% { filter: brightness(1) saturate(1); }
-          50% { filter: brightness(1.03) saturate(1.05); }
-        }
-        @keyframes starSparkle {
-          0%, 100% { opacity: 0.08; }
-          50% { opacity: 0.2; }
-        }
         @keyframes floatZzz {
           0% { transform: translateY(0) scale(1); opacity: 0; }
           20% { opacity: 0.7; }
           100% { transform: translateY(-40px) scale(1.3); opacity: 0; }
         }
-
         .scene-container {
           position: relative; width: 100%; max-width: 540px;
           aspect-ratio: 1 / 1; border-radius: 20px; overflow: hidden;
+          background: #0a1428;
         }
         .puppy-layer {
           position: absolute; inset: 0; width: 100%; height: 100%;
@@ -311,77 +338,19 @@ export default function ReadToAPuppy() {
 
       <h1 className="site-title" style={{ marginBottom: 8 }}>🌙 Read to a Puppy</h1>
 
-      {/* ── Scene: video (awake) + image layers (sleep stages) ── */}
+      {/* ── Scene ── */}
       <div className="scene-container">
-        <div style={{ position: "absolute", inset: 0 }}>
-          {/* Video layer — awake animated puppy (loops) */}
-          <video
-            autoPlay loop muted playsInline
-            className="puppy-layer"
-            style={{ opacity: opacities[0] }}
-          >
-            <source src="/video/puppy-awake-loop.mp4" type="video/mp4" />
-          </video>
-          {/* Image layers — sleep progression */}
-          {PUPPY_IMAGES.slice(1).map((src, i) => (
-            <img
-              key={i + 1}
-              src={src}
-              alt={`Puppy stage ${i + 2}`}
-              className="puppy-layer"
-              style={{ opacity: opacities[i + 1] }}
-              draggable={false}
-            />
-          ))}
-        </div>
-
-        {/* Sparkle overlay dots (twinkle on top of image) */}
-        <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-          {[
-            { x: "15%", y: "12%", d: "0s", s: 5 },
-            { x: "78%", y: "8%", d: "1.2s", s: 4 },
-            { x: "88%", y: "25%", d: "2.5s", s: 3 },
-            { x: "8%", y: "30%", d: "0.8s", s: 3.5 },
-            { x: "55%", y: "5%", d: "1.8s", s: 4.5 },
-            { x: "35%", y: "3%", d: "3s", s: 3 },
-            { x: "92%", y: "15%", d: "0.4s", s: 2.5 },
-            { x: "22%", y: "20%", d: "2s", s: 3 },
-          ].map((star, i) => (
-            <div key={i} style={{
-              position: "absolute", left: star.x, top: star.y,
-              width: star.s, height: star.s, borderRadius: "50%",
-              background: "white",
-              animation: `starSparkle ${2.5 + i * 0.3}s ease-in-out ${star.d} infinite`,
-            }} />
-          ))}
-        </div>
+        {renderMedia()}
 
         {/* Floating Zzz when asleep */}
         {puppyElapsed > 90 && (
           <div style={{
-            position: "absolute", top: "28%", left: "38%",
-            pointerEvents: "none",
-            opacity: Math.min(1, (puppyElapsed - 90) / 30),
-            transition: "opacity 3s ease",
+            position: "absolute", top: "28%", left: "38%", pointerEvents: "none",
+            opacity: Math.min(1, (puppyElapsed - 90) / 30), transition: "opacity 3s ease",
           }}>
-            <span style={{
-              position: "absolute", fontSize: "clamp(14px, 3vw, 20px)", color: "#a0c8f0",
-              fontFamily: "'Baloo 2', sans-serif", fontWeight: 700,
-              animation: "floatZzz 3s ease-in-out infinite",
-              left: 0, top: 0,
-            }}>Z</span>
-            <span style={{
-              position: "absolute", fontSize: "clamp(11px, 2.2vw, 16px)", color: "#80b0e0",
-              fontFamily: "'Baloo 2', sans-serif", fontWeight: 700,
-              animation: "floatZzz 3s ease-in-out 1s infinite",
-              left: 14, top: -6,
-            }}>z</span>
-            <span style={{
-              position: "absolute", fontSize: "clamp(8px, 1.6vw, 12px)", color: "#6898c8",
-              fontFamily: "'Baloo 2', sans-serif", fontWeight: 700,
-              animation: "floatZzz 3s ease-in-out 2s infinite",
-              left: 24, top: -12,
-            }}>z</span>
+            <span style={{ position: "absolute", fontSize: "clamp(14px, 3vw, 20px)", color: "#a0c8f0", fontFamily: "'Baloo 2', sans-serif", fontWeight: 700, animation: "floatZzz 3s ease-in-out infinite", left: 0, top: 0 }}>Z</span>
+            <span style={{ position: "absolute", fontSize: "clamp(11px, 2.2vw, 16px)", color: "#80b0e0", fontFamily: "'Baloo 2', sans-serif", fontWeight: 700, animation: "floatZzz 3s ease-in-out 1s infinite", left: 14, top: -6 }}>z</span>
+            <span style={{ position: "absolute", fontSize: "clamp(8px, 1.6vw, 12px)", color: "#6898c8", fontFamily: "'Baloo 2', sans-serif", fontWeight: 700, animation: "floatZzz 3s ease-in-out 2s infinite", left: 24, top: -12 }}>z</span>
           </div>
         )}
 
@@ -402,7 +371,6 @@ export default function ReadToAPuppy() {
         </button>
       </div>
 
-      {/* ── Timer ── */}
       <div className="timer-display" style={{ marginBottom: 4 }}>
         {state === "idle" ? fmt(duration) : fmt(remaining)}
       </div>
