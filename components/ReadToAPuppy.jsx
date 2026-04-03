@@ -235,7 +235,7 @@ export default function ReadToAPuppy() {
     if (state === "completed") return;
     if (state === "idle") {
       setElapsed(0); setShowBubble(true); setShowFallback(null);
-      setCurrentSegmentKey("awakeLoop");
+      segKeyRef.current = "awakeLoop";
       if (videoRef.current) { videoRef.current.currentTime = 0; }
       if (audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.play().catch(() => {}); }
       setTimeout(() => setShowBubble(false), 5000);
