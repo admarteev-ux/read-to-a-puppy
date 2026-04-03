@@ -311,21 +311,25 @@ export default function ReadToAPuppy() {
 
       <h1 className="site-title" style={{ marginBottom: 8 }}>🌙 Read to a Puppy</h1>
 
-      {/* ── Scene: layered puppy images + living animations ── */}
+      {/* ── Scene: video (awake) + image layers (sleep stages) ── */}
       <div className="scene-container">
-        {/* Breathing + rocking wrapper — single animation, never restarts */}
-        <div style={{
-          position: "absolute", inset: 0,
-          transformOrigin: "50% 85%",
-          animation: "puppyBreathe 3.5s ease-in-out infinite, gentleRock 5s ease-in-out infinite, warmGlow 4s ease-in-out infinite",
-        }}>
-          {PUPPY_IMAGES.map((src, i) => (
+        <div style={{ position: "absolute", inset: 0 }}>
+          {/* Video layer — awake animated puppy (loops) */}
+          <video
+            autoPlay loop muted playsInline
+            className="puppy-layer"
+            style={{ opacity: opacities[0] }}
+          >
+            <source src="/video/puppy-awake.mp4" type="video/mp4" />
+          </video>
+          {/* Image layers — sleep progression */}
+          {PUPPY_IMAGES.slice(1).map((src, i) => (
             <img
-              key={i}
+              key={i + 1}
               src={src}
-              alt={`Puppy stage ${i + 1}`}
+              alt={`Puppy stage ${i + 2}`}
               className="puppy-layer"
-              style={{ opacity: opacities[i] }}
+              style={{ opacity: opacities[i + 1] }}
               draggable={false}
             />
           ))}
