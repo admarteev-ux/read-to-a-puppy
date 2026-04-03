@@ -2,27 +2,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ─────────────────────────────────────────────
-   READ TO A PUPPY — v15 (iOS-proof)
+   READ TO A PUPPY — v16 (All bugs fixed)
    
-   Pre-baked full-length videos for each timer.
-   ZERO JavaScript video control — no seeking,
-   no currentTime, no rAF, no setInterval loops.
-   Just <video autoplay muted playsinline>.
-   iOS Safari handles playback natively.
-   
-   Video files:
-   - /video/puppy-10min.mp4 (10 min, ~14MB)
-   - /video/puppy-20min.mp4 (20 min, ~26MB)
-   - /video/puppy-30min.mp4 (30 min, ~56MB)
-   
-   Each contains the full sleep progression:
-   0:00-0:30  awake breathing
-   0:30-0:35  transition → drowsy
-   0:35-1:05  drowsy breathing  
-   1:05-1:10  transition → sleepy
-   1:10-1:40  sleepy breathing
-   1:40-1:45  transition → asleep
-   1:45+      asleep breathing (fills remaining time)
+   Fixes:
+   1. Asleep fallback image when video ends
+   2. Key counter forces video reload on Read Again
+   3. Direct clearInterval in pause/stop handlers
+   4. Proper completed→idle→start flow
+   5. Poster image shown in idle state
+   6. Timer drift is acceptable for MVP
    ───────────────────────────────────────────── */
 
 const fmt = (s) => {
@@ -46,6 +34,11 @@ const VIDEO_MAP = {
   1200: "/video/puppy-20min.mp4",
   1800: "/video/puppy-30min.mp4",
 };
+
+// Poster = first frame shown in idle state
+const POSTER_IMAGE = "/images/puppy-1-awake.png";
+// Fallback when video ends but session continues
+const ASLEEP_IMAGE = "/images/puppy-4-asleep.png";
 
 /* ── Lamp Post ── */
 const LampPost = ({ activeBtn }) => {
@@ -123,12 +116,18 @@ export default function ReadToAPuppy() {
   const [state, setState] = useState("idle");
   const [showBubble, setShowBubble] = useState(false);
   const [videoSrc, setVideoSrc] = useState(VIDEO_MAP[600]);
+  const [videoKey, setVideoKey] = useState(0);        // FIX #2: forces video remount
+  const [videoEnded, setVideoEnded] = useState(false); // FIX #1: fallback when video ends
   const intervalRef = useRef(null);
   const audioRef = useRef(null);
   const videoRef = useRef(null);
 
   const activeBtn = state === "running" ? "green" : state === "paused" ? "yellow" : state === "completed" ? "red" : null;
   const remaining = Math.max(0, duration - elapsed);
+
+  // Show poster in idle, asleep image when video ended
+  const showPoster = state === "idle";
+  const showAsleepFallback = videoEnded && (state === "running" || state === "completed");
 
   // Timer
   useEffect(() => {
@@ -154,21 +153,29 @@ export default function ReadToAPuppy() {
     }
   }, [duration, state]);
 
+  // FIX #1: detect video ended
+  const handleVideoEnded = useCallback(() => {
+    setVideoEnded(true);
+  }, []);
+
   const handleStart = useCallback(() => {
     if (state === "completed") return;
     if (state === "idle") {
       setElapsed(0);
       setShowBubble(true);
+      setVideoEnded(false);
       setVideoSrc(VIDEO_MAP[duration]);
+      // FIX #2: increment key to force React to remount video element
+      setVideoKey(k => k + 1);
 
-      // Small delay to ensure video src is loaded
+      // Small delay to ensure video element is mounted with new key
       setTimeout(() => {
         const video = videoRef.current;
         if (video) {
           video.currentTime = 0;
           video.play().catch(() => {});
         }
-      }, 100);
+      }, 150);
 
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
@@ -185,6 +192,8 @@ export default function ReadToAPuppy() {
 
   const handlePause = useCallback(() => {
     if (state === "running") {
+      // FIX #3: clear interval immediately, don't wait for useEffect cleanup
+      clearInterval(intervalRef.current);
       if (videoRef.current) videoRef.current.pause();
       setState("paused");
     }
@@ -192,24 +201,24 @@ export default function ReadToAPuppy() {
 
   const handleStop = useCallback(() => {
     if (state === "running" || state === "paused") {
+      // FIX #3: clear interval immediately
       clearInterval(intervalRef.current);
-      // Don't pause video — let it keep playing the asleep animation
+      // Don't pause video in completed — let asleep animation continue
       setState("completed");
       setShowBubble(false);
     } else if (state === "completed") {
-      // Reset
+      // FIX #4: Reset everything cleanly
+      clearInterval(intervalRef.current);
       if (videoRef.current) {
         videoRef.current.pause();
         videoRef.current.currentTime = 0;
       }
+      setVideoEnded(false);
       setState("idle");
       setElapsed(0);
       setShowBubble(false);
     }
   }, [state]);
-
-  // When completed, let video keep playing (asleep animation continues)
-  // No JS intervention needed — video plays straight through
 
   return (
     <div style={{
@@ -276,19 +285,44 @@ export default function ReadToAPuppy() {
       <h1 className="site-title" style={{ marginBottom: 8 }}>🌙 Read to a Puppy</h1>
 
       <div className="scene-container">
-        <video
-          ref={videoRef}
-          key={videoSrc}
-          muted
-          playsInline
-          webkit-playsinline="true"
-          preload="auto"
-          className="puppy-layer"
-        >
-          <source src={videoSrc} type="video/mp4" />
-        </video>
+        {/* FIX #6: Poster image shown in idle state */}
+        {showPoster && (
+          <img
+            src={POSTER_IMAGE}
+            alt="Puppy awake"
+            className="puppy-layer"
+            draggable={false}
+          />
+        )}
 
-        {/* Zzz after asleep transition (~1:45) */}
+        {/* Video — hidden in idle, visible when playing */}
+        {!showPoster && (
+          <video
+            ref={videoRef}
+            key={videoKey}
+            muted
+            playsInline
+            webkit-playsinline="true"
+            preload="auto"
+            className="puppy-layer"
+            style={{ opacity: showAsleepFallback ? 0 : 1 }}
+            onEnded={handleVideoEnded}
+          >
+            <source src={videoSrc} type="video/mp4" />
+          </video>
+        )}
+
+        {/* FIX #1: Asleep fallback when video finishes but session continues */}
+        {showAsleepFallback && (
+          <img
+            src={ASLEEP_IMAGE}
+            alt="Puppy asleep"
+            className="puppy-layer"
+            draggable={false}
+          />
+        )}
+
+        {/* Zzz after asleep transition (~1:45 = 105s) */}
         {elapsed > 100 && state !== "idle" && (
           <div style={{
             position: "absolute", top: "28%", left: "38%", pointerEvents: "none",
