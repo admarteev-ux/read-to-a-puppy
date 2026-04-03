@@ -2,25 +2,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ─────────────────────────────────────────────
-   READ TO A PUPPY — v11
+   READ TO A PUPPY — v12 (Complete animation)
    
-   Single concatenated video (puppy-full.mp4):
-   0-5s      loop1 copy1
-   5-10s     loop1 copy2
-   10-15s    loop1 copy3
-   15-20s    loop1 copy4
+   puppy-full.mp4 layout (each segment ~5s):
+   0-20s     loop1 (awake) x4
    20-25s    transition 1→2
-   25-30s    loop2 copy1
-   30-35s    loop2 copy2
-   35-40s    loop2 copy3
-   40-45s    loop2 copy4
+   25-45s    loop2 (drowsy) x4
    45-50s    transition 2→3
-   50-55s    loop3 copy1  (old sleepy)
-   55-60s    loop3 copy2
-   60-65s    loop3 copy3
-   65-70s    loop3 copy4
+   50-70s    loop3 (sleepy) x4
+   70-75s    transition 3→4
+   75-95s    loop4 (asleep) x4
    
-   Fallback images for state 4 (asleep).
+   Total: ~95s. All states covered with video.
+   Eyes fully closed by ~75s mark (transition 3→4).
+   After 95s, loop4 keeps repeating.
    ───────────────────────────────────────────── */
 
 const fmt = (s) => {
@@ -39,35 +34,20 @@ const StopIcon = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2.5" /></svg>
 );
 
-/* ── Segments in puppy-full.mp4 ──
-   Each segment = 5 seconds.
-   Loops: seek back to loopStart when hitting loopEnd.
-   Transitions: play through once, then move to next segment group. */
-
-// Elapsed time mapping → what to play
-// 0-20s:   awake loop (video 0-20, loops within 0-5)
-// 20-25s:  transition awake→drowsy (video 20-25, play once)  
-// 25-45s:  drowsy loop (video 25-45, loops within 25-30)
-// 45-50s:  transition drowsy→sleepy (video 45-50, play once)
-// 50-90s:  sleepy loop (video 50-70, loops within 50-55)
-// 90+:     fallback to asleep image
-
+/* ── Phase map: elapsed seconds → video position ── */
 const PHASES = [
-  { elapsedStart: 0,   elapsedEnd: 20,  vidStart: 0,  vidEnd: 5,   loop: true },   // awake loop
-  { elapsedStart: 20,  elapsedEnd: 25,  vidStart: 20, vidEnd: 25,  loop: false },  // trans 1→2
-  { elapsedStart: 25,  elapsedEnd: 45,  vidStart: 25, vidEnd: 30,  loop: true },   // drowsy loop
-  { elapsedStart: 45,  elapsedEnd: 50,  vidStart: 45, vidEnd: 50,  loop: false },  // trans 2→3
-  { elapsedStart: 50,  elapsedEnd: 90,  vidStart: 50, vidEnd: 55,  loop: true },   // sleepy loop
-  { elapsedStart: 90,  elapsedEnd: 9999, vidStart: -1, vidEnd: -1, loop: false, fallback: "/images/puppy-4-almost.png" },
-  // When all videos ready, replace above with proper trans 3→4 and asleep loop
+  { elStart: 0,   elEnd: 20,  vStart: 0,  vEnd: 5,   loop: true },   // awake loop
+  { elStart: 20,  elEnd: 25,  vStart: 20, vEnd: 25,  loop: false },  // trans 1→2
+  { elStart: 25,  elEnd: 45,  vStart: 25, vEnd: 30,  loop: true },   // drowsy loop
+  { elStart: 45,  elEnd: 50,  vStart: 45, vEnd: 50,  loop: false },  // trans 2→3
+  { elStart: 50,  elEnd: 70,  vStart: 50, vEnd: 55,  loop: true },   // sleepy loop
+  { elStart: 70,  elEnd: 75,  vStart: 70, vEnd: 75,  loop: false },  // trans 3→4
+  { elStart: 75,  elEnd: 9999, vStart: 75, vEnd: 80, loop: true },   // asleep loop (forever)
 ];
-
-// For completed state
-const ASLEEP_FALLBACK = "/images/puppy-5-asleep.png";
 
 function getPhase(elapsed) {
   for (let i = PHASES.length - 1; i >= 0; i--) {
-    if (elapsed >= PHASES[i].elapsedStart) return { ...PHASES[i], index: i };
+    if (elapsed >= PHASES[i].elStart) return { ...PHASES[i], index: i };
   }
   return { ...PHASES[0], index: 0 };
 }
@@ -147,7 +127,6 @@ export default function ReadToAPuppy() {
   const [elapsed, setElapsed] = useState(0);
   const [state, setState] = useState("idle");
   const [showBubble, setShowBubble] = useState(false);
-  const [showFallback, setShowFallback] = useState(null);
   const intervalRef = useRef(null);
   const audioRef = useRef(null);
   const videoRef = useRef(null);
@@ -156,60 +135,46 @@ export default function ReadToAPuppy() {
 
   const activeBtn = state === "running" ? "green" : state === "paused" ? "yellow" : state === "completed" ? "red" : null;
   const remaining = Math.max(0, duration - elapsed);
-  const puppyElapsed = state === "idle" ? 0 : state === "completed" ? 999 : elapsed;
+  const puppyElapsed = state === "idle" ? 0 : state === "completed" ? 9999 : elapsed;
 
-  // Main video controller
+  // Video controller
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    if (state === "completed") {
-      video.pause();
-      cancelAnimationFrame(rafRef.current);
-      setShowFallback(ASLEEP_FALLBACK);
-      phaseIdxRef.current = -1;
+    if (state === "idle") {
+      video.pause(); cancelAnimationFrame(rafRef.current);
+      video.currentTime = 0; phaseIdxRef.current = -1;
       return;
     }
 
-    if (state === "idle") {
-      video.pause();
-      cancelAnimationFrame(rafRef.current);
-      video.currentTime = 0;
-      setShowFallback(null);
-      phaseIdxRef.current = -1;
-      return;
+    if (state === "completed") {
+      // Keep playing asleep loop
+      const asleep = PHASES[PHASES.length - 1];
+      if (phaseIdxRef.current !== PHASES.length - 1) {
+        phaseIdxRef.current = PHASES.length - 1;
+        video.currentTime = asleep.vStart;
+        video.play().catch(() => {});
+      }
     }
 
     const phase = getPhase(puppyElapsed);
 
-    // Fallback image
-    if (phase.fallback) {
-      video.pause();
-      cancelAnimationFrame(rafRef.current);
-      setShowFallback(phase.fallback);
-      phaseIdxRef.current = phase.index;
-      return;
-    }
-
-    setShowFallback(null);
-
-    // Seek if phase changed
     if (phase.index !== phaseIdxRef.current) {
       phaseIdxRef.current = phase.index;
-      video.currentTime = phase.vidStart;
-      if (state === "running") video.play().catch(() => {});
+      video.currentTime = phase.vStart;
+      if (state === "running" || state === "completed") video.play().catch(() => {});
     }
 
-    // Tight loop via rAF
+    // rAF loop check
     const tick = () => {
       const p = PHASES[phaseIdxRef.current];
-      if (!p || p.fallback) return;
-      
-      if (video.currentTime >= p.vidEnd - 0.1) {
+      if (!p) { rafRef.current = requestAnimationFrame(tick); return; }
+
+      if (video.currentTime >= p.vEnd - 0.1) {
         if (p.loop) {
-          video.currentTime = p.vidStart;
+          video.currentTime = p.vStart;
         }
-        // transitions: just play through, elapsed time advances to next phase
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -219,16 +184,16 @@ export default function ReadToAPuppy() {
     return () => cancelAnimationFrame(rafRef.current);
   }, [puppyElapsed, state]);
 
-  // Pause/resume video
+  // Pause/resume
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (state === "running" && !showFallback) {
+    if (state === "running" || state === "completed") {
       video.play().catch(() => {});
     } else {
       video.pause();
     }
-  }, [state, showFallback]);
+  }, [state]);
 
   // Timer
   useEffect(() => {
@@ -246,10 +211,9 @@ export default function ReadToAPuppy() {
   const handleStart = useCallback(() => {
     if (state === "completed") return;
     if (state === "idle") {
-      setElapsed(0); setShowBubble(true); setShowFallback(null);
+      setElapsed(0); setShowBubble(true);
       phaseIdxRef.current = -1;
-      const video = videoRef.current;
-      if (video) { video.currentTime = 0; }
+      if (videoRef.current) videoRef.current.currentTime = 0;
       if (audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.play().catch(() => {}); }
       setTimeout(() => setShowBubble(false), 5000);
       setState("running");
@@ -266,7 +230,7 @@ export default function ReadToAPuppy() {
       cancelAnimationFrame(rafRef.current);
     } else if (state === "completed") {
       setState("idle"); setElapsed(0); setShowBubble(false);
-      setShowFallback(null); phaseIdxRef.current = -1;
+      phaseIdxRef.current = -1;
       if (videoRef.current) videoRef.current.currentTime = 0;
     }
   }, [state]);
@@ -336,20 +300,15 @@ export default function ReadToAPuppy() {
       <h1 className="site-title" style={{ marginBottom: 8 }}>🌙 Read to a Puppy</h1>
 
       <div className="scene-container">
-        <video ref={videoRef} muted playsInline preload="auto" className="puppy-layer"
-          style={{ opacity: showFallback ? 0 : 1 }}>
+        <video ref={videoRef} muted playsInline preload="auto" className="puppy-layer">
           <source src="/video/puppy-full.mp4" type="video/mp4" />
         </video>
 
-        {showFallback && (
-          <img src={showFallback} alt="Puppy" className="puppy-layer" style={{ opacity: 1 }} draggable={false} />
-        )}
-
-        {/* Zzz */}
+        {/* Zzz when asleep */}
         {(puppyElapsed > 70 || state === "completed") && (
           <div style={{
             position: "absolute", top: "28%", left: "38%", pointerEvents: "none",
-            opacity: state === "completed" ? 1 : Math.min(1, (puppyElapsed - 70) / 20),
+            opacity: state === "completed" ? 1 : Math.min(1, (puppyElapsed - 70) / 10),
             transition: "opacity 3s ease",
           }}>
             <span style={{ position: "absolute", fontSize: "clamp(14px, 3vw, 20px)", color: "#a0c8f0", fontFamily: "'Baloo 2', sans-serif", fontWeight: 700, animation: "floatZzz 3s ease-in-out infinite", left: 0, top: 0 }}>Z</span>
