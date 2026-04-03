@@ -35,14 +35,17 @@ const StopIcon = () => (
 );
 
 /* ── Phase map: elapsed seconds → video position ── */
+/* ── Phase map: elapsed seconds → video position ── 
+   Loops now play through all 4 copies (20s of video) before seeking back.
+   This avoids jerky loop boundaries since copies flow naturally. */
 const PHASES = [
-  { elStart: 0,   elEnd: 20,  vStart: 0,  vEnd: 5,   loop: true },   // awake loop
+  { elStart: 0,   elEnd: 20,  vStart: 0,  vEnd: 20,  loop: true },   // awake loop (4 copies)
   { elStart: 20,  elEnd: 25,  vStart: 20, vEnd: 25,  loop: false },  // trans 1→2
-  { elStart: 25,  elEnd: 45,  vStart: 25, vEnd: 30,  loop: true },   // drowsy loop
+  { elStart: 25,  elEnd: 45,  vStart: 25, vEnd: 45,  loop: true },   // drowsy loop (4 copies)
   { elStart: 45,  elEnd: 50,  vStart: 45, vEnd: 50,  loop: false },  // trans 2→3
-  { elStart: 50,  elEnd: 70,  vStart: 50, vEnd: 55,  loop: true },   // sleepy loop
+  { elStart: 50,  elEnd: 70,  vStart: 50, vEnd: 70,  loop: true },   // sleepy loop (4 copies)
   { elStart: 70,  elEnd: 75,  vStart: 70, vEnd: 75,  loop: false },  // trans 3→4
-  { elStart: 75,  elEnd: 9999, vStart: 75, vEnd: 80, loop: true },   // asleep loop (forever)
+  { elStart: 75,  elEnd: 9999, vStart: 75, vEnd: 95, loop: true },   // asleep loop (4 copies)
 ];
 
 function getPhase(elapsed) {
