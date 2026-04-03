@@ -2,23 +2,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ─────────────────────────────────────────────
-   READ TO A PUPPY — v9 (Single video approach)
+   READ TO A PUPPY — v10 (Double-buffered video)
    
-   One concatenated video file. Component seeks 
-   to the right position based on elapsed time.
-   No black frames between segments.
-   
-   Video layout (puppy-full.mp4):
-   0:00 - 10:00  → awake loop (copy 1)
-   10:00 - 20:00 → awake loop (copy 2)
-   20:00 - 25:00 → transition awake→drowsy
-   25:00 - 35:00 → drowsy loop (copy 1)
-   35:00 - 45:00 → drowsy loop (copy 2)
-   45:00 - 50:00 → transition drowsy→sleepy
-   50:00 - 60:00 → sleepy loop (copy 1)
-   60:00 - 70:00 → sleepy loop (copy 2)
-   
-   For stages without video yet → fallback images
+   Two <video> elements share the same src.
+   One plays, the other silently pre-seeks to 
+   the next position. On swap, instant switch 
+   with zero gap. No black frames.
    ───────────────────────────────────────────── */
 
 const fmt = (s) => {
@@ -37,44 +26,29 @@ const StopIcon = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2.5" /></svg>
 );
 
-/* ── Video segment map (seconds within puppy-full.mp4) ── */
-const SEGMENTS = {
-  awakeLoop:      { start: 0,    end: 10,   loop: true },
-  transAwakeDrowsy: { start: 20, end: 25,   loop: false },
-  drowsyLoop:     { start: 25,   end: 35,   loop: true },
-  transDrowsySleepy: { start: 45, end: 50,  loop: false },
-  sleepyLoop:     { start: 50,   end: 60,   loop: true },
-  // Future segments (not in video yet):
-  // transSleepyAlmost: { start: X, end: Y, loop: false },
-  // almostLoop:     { start: X, end: Y, loop: true },
-  // transAlmostAsleep: { start: X, end: Y, loop: false },
-  // asleepLoop:     { start: X, end: Y, loop: true },
-};
-
-/* ── Timeline: maps elapsed seconds → video segment ──
-   0-20s    → awakeLoop (loops internally)
-   20-25s   → transAwakeDrowsy (plays once)
-   25-47s   → drowsyLoop (loops internally)
-   47-52s   → transDrowsySleepy (plays once)
-   52-120s  → sleepyLoop (loops internally)
-   
-   For stages without video → show fallback image
-*/
-const TIMELINE = [
-  { elapsed: 0,   segment: "awakeLoop",          fallback: null },
-  { elapsed: 20,  segment: "transAwakeDrowsy",   fallback: null },
-  { elapsed: 25,  segment: "drowsyLoop",         fallback: null },
-  { elapsed: 47,  segment: "transDrowsySleepy",  fallback: null },
-  { elapsed: 52,  segment: "sleepyLoop",          fallback: null },
-  { elapsed: 72,  segment: null,                  fallback: "/images/puppy-4-almost.png" },
-  { elapsed: 97,  segment: null,                  fallback: "/images/puppy-5-asleep.png" },
+/* ── Segment map within puppy-full.mp4 ── */
+const SEGS = [
+  { key: "awake1",   start: 0,  end: 10, loop: true,  next: 1 },
+  { key: "awake2",   start: 10, end: 20, loop: false, next: 2 },
+  { key: "trans12",  start: 20, end: 25, loop: false, next: 3 },
+  { key: "drowsy1",  start: 25, end: 35, loop: true,  next: 4 },
+  { key: "drowsy2",  start: 35, end: 45, loop: false, next: 5 },
+  { key: "trans23",  start: 45, end: 50, loop: false, next: 6 },
+  { key: "sleepy1",  start: 50, end: 60, loop: true,  next: 7 },
+  { key: "sleepy2",  start: 60, end: 70, loop: false, next: null },
 ];
 
-function getTimelinePhase(elapsedSec) {
-  for (let i = TIMELINE.length - 1; i >= 0; i--) {
-    if (elapsedSec >= TIMELINE[i].elapsed) return TIMELINE[i];
-  }
-  return TIMELINE[0];
+/* Map elapsed seconds → segment index */
+function getSegIndex(elapsed) {
+  // 0-10 → awake1, 10-20 → awake2, 20-25 → trans, 25-35 → drowsy1, etc.
+  if (elapsed < 10) return 0;
+  if (elapsed < 20) return 1;
+  if (elapsed < 25) return 2;
+  if (elapsed < 35) return 3;
+  if (elapsed < 45) return 4;
+  if (elapsed < 50) return 5;
+  if (elapsed < 60) return 6;
+  return 7;
 }
 
 /* ── Lamp Post ── */
@@ -153,70 +127,120 @@ export default function ReadToAPuppy() {
   const [state, setState] = useState("idle");
   const [showBubble, setShowBubble] = useState(false);
   const [showFallback, setShowFallback] = useState(null);
+  const [activePlayer, setActivePlayer] = useState(0); // 0 or 1
   const intervalRef = useRef(null);
   const audioRef = useRef(null);
-  const videoRef = useRef(null);
+  const videoARef = useRef(null);
+  const videoBRef = useRef(null);
+  const currentSegRef = useRef(0);
+  const rafRef = useRef(null);
 
   const activeBtn = state === "running" ? "green" : state === "paused" ? "yellow" : state === "completed" ? "red" : null;
   const remaining = Math.max(0, duration - elapsed);
-  const puppyElapsed = state === "idle" ? 0 : state === "completed" ? 120 : elapsed;
+  const puppyElapsed = state === "idle" ? 0 : state === "completed" ? 70 : Math.min(70, elapsed);
 
-  // Video playback controller — uses requestAnimationFrame for tight loops
-  const segKeyRef = useRef("awakeLoop");
-  const rafRef = useRef(null);
+  const getActiveVideo = () => activePlayer === 0 ? videoARef.current : videoBRef.current;
+  const getStandbyVideo = () => activePlayer === 0 ? videoBRef.current : videoARef.current;
 
+  // Pre-seek standby video to next segment start
+  const preSeekNext = useCallback((segIdx) => {
+    const seg = SEGS[segIdx];
+    if (!seg) return;
+    const nextIdx = seg.loop ? segIdx : seg.next;
+    if (nextIdx === null || !SEGS[nextIdx]) return;
+    const standby = getStandbyVideo();
+    if (standby) {
+      standby.currentTime = SEGS[nextIdx].start;
+    }
+  }, [activePlayer]);
+
+  // Swap active/standby players
+  const swapPlayers = useCallback(() => {
+    const standby = getStandbyVideo();
+    if (standby && state === "running") {
+      standby.play().catch(() => {});
+    }
+    const active = getActiveVideo();
+    if (active) active.pause();
+    setActivePlayer(p => p === 0 ? 1 : 0);
+  }, [activePlayer, state]);
+
+  // Main animation frame loop — checks for segment boundaries
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const phase = getTimelinePhase(puppyElapsed);
-
-    // Fallback image (no video for this phase)
-    if (!phase.segment) {
-      video.pause();
+    if (state !== "running") {
       cancelAnimationFrame(rafRef.current);
-      setShowFallback(phase.fallback);
-      segKeyRef.current = null;
+      return;
+    }
+
+    const check = () => {
+      const active = activePlayer === 0 ? videoARef.current : videoBRef.current;
+      if (!active) { rafRef.current = requestAnimationFrame(check); return; }
+
+      const segIdx = currentSegRef.current;
+      const seg = SEGS[segIdx];
+      if (!seg) { rafRef.current = requestAnimationFrame(check); return; }
+
+      const timeLeft = seg.end - active.currentTime;
+
+      // Pre-seek standby when 1 second from end
+      if (timeLeft < 1 && timeLeft > 0.8) {
+        preSeekNext(segIdx);
+      }
+
+      // Swap when hitting segment end
+      if (active.currentTime >= seg.end - 0.08) {
+        if (seg.loop) {
+          // For loops: just seek back on same player (no swap needed)
+          active.currentTime = seg.start;
+        } else if (seg.next !== null && SEGS[seg.next]) {
+          // For transitions: swap to standby which is pre-seeked
+          currentSegRef.current = seg.next;
+          swapPlayers();
+        }
+      }
+
+      rafRef.current = requestAnimationFrame(check);
+    };
+
+    rafRef.current = requestAnimationFrame(check);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [state, activePlayer, preSeekNext, swapPlayers]);
+
+  // Handle segment changes based on elapsed time
+  useEffect(() => {
+    const targetSeg = getSegIndex(puppyElapsed);
+
+    // Beyond video content — show fallback image
+    if (targetSeg >= SEGS.length || !SEGS[targetSeg]) {
+      const active = getActiveVideo();
+      if (active) active.pause();
+      setShowFallback(puppyElapsed >= 70 ? "/images/puppy-4-almost.png" : "/images/puppy-5-asleep.png");
+      if (puppyElapsed >= 97) setShowFallback("/images/puppy-5-asleep.png");
       return;
     }
 
     setShowFallback(null);
-    const seg = SEGMENTS[phase.segment];
-    if (!seg) return;
 
-    // Seek if segment changed
-    if (phase.segment !== segKeyRef.current) {
-      segKeyRef.current = phase.segment;
-      video.currentTime = seg.start;
-      if (state === "running") video.play().catch(() => {});
-    }
-
-    // Tight loop check via requestAnimationFrame
-    const checkLoop = () => {
-      if (!video) return;
-      const curSeg = SEGMENTS[segKeyRef.current];
-      if (curSeg && video.currentTime >= curSeg.end - 0.15) {
-        if (curSeg.loop) {
-          video.currentTime = curSeg.start;
-        }
+    if (targetSeg !== currentSegRef.current) {
+      currentSegRef.current = targetSeg;
+      const active = getActiveVideo();
+      if (active) {
+        active.currentTime = SEGS[targetSeg].start;
+        if (state === "running") active.play().catch(() => {});
       }
-      rafRef.current = requestAnimationFrame(checkLoop);
-    };
-
-    rafRef.current = requestAnimationFrame(checkLoop);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [puppyElapsed, state]);
-
-  // Pause/resume video with timer
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (state === "running" && !showFallback) {
-      video.play().catch(() => {});
-    } else {
-      video.pause();
     }
-  }, [state, showFallback]);
+  }, [puppyElapsed]);
+
+  // Pause/resume
+  useEffect(() => {
+    const active = getActiveVideo();
+    if (!active) return;
+    if (state === "running" && !showFallback) {
+      active.play().catch(() => {});
+    } else {
+      active.pause();
+    }
+  }, [state, showFallback, activePlayer]);
 
   // Timer
   useEffect(() => {
@@ -235,25 +259,27 @@ export default function ReadToAPuppy() {
     if (state === "completed") return;
     if (state === "idle") {
       setElapsed(0); setShowBubble(true); setShowFallback(null);
-      segKeyRef.current = "awakeLoop";
-      if (videoRef.current) { videoRef.current.currentTime = 0; }
+      currentSegRef.current = 0;
+      const active = getActiveVideo();
+      if (active) { active.currentTime = 0; active.play().catch(() => {}); }
       if (audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.play().catch(() => {}); }
       setTimeout(() => setShowBubble(false), 5000);
       setState("running");
     } else if (state === "paused") {
       setState("running");
     }
-  }, [state]);
+  }, [state, activePlayer]);
 
   const handlePause = useCallback(() => { if (state === "running") setState("paused"); }, [state]);
 
   const handleStop = useCallback(() => {
     if (state === "running" || state === "paused") {
       clearInterval(intervalRef.current); setState("completed"); setShowBubble(false);
+      cancelAnimationFrame(rafRef.current);
     } else if (state === "completed") {
       setState("idle"); setElapsed(0); setShowBubble(false);
-      setShowFallback(null); segKeyRef.current = "awakeLoop";
-      if (videoRef.current) { videoRef.current.currentTime = 0; }
+      setShowFallback(null); currentSegRef.current = 0; setActivePlayer(0);
+      if (videoARef.current) { videoARef.current.currentTime = 0; }
     }
   }, [state]);
 
@@ -321,34 +347,27 @@ export default function ReadToAPuppy() {
 
       <h1 className="site-title" style={{ marginBottom: 8 }}>🌙 Read to a Puppy</h1>
 
-      {/* ── Scene ── */}
       <div className="scene-container">
-        {/* Single video element — all segments concatenated */}
-        <video
-          ref={videoRef}
-          muted playsInline preload="auto"
-          className="puppy-layer"
-          style={{ opacity: showFallback ? 0 : 1 }}
-        >
+        {/* Double-buffered video players */}
+        <video ref={videoARef} muted playsInline preload="auto" className="puppy-layer"
+          style={{ opacity: showFallback ? 0 : activePlayer === 0 ? 1 : 0 }}>
+          <source src="/video/puppy-full.mp4" type="video/mp4" />
+        </video>
+        <video ref={videoBRef} muted playsInline preload="auto" className="puppy-layer"
+          style={{ opacity: showFallback ? 0 : activePlayer === 1 ? 1 : 0 }}>
           <source src="/video/puppy-full.mp4" type="video/mp4" />
         </video>
 
-        {/* Fallback images for stages without video */}
+        {/* Fallback images */}
         {showFallback && (
-          <img
-            src={showFallback}
-            alt="Puppy"
-            className="puppy-layer"
-            style={{ opacity: 1 }}
-            draggable={false}
-          />
+          <img src={showFallback} alt="Puppy" className="puppy-layer" style={{ opacity: 1 }} draggable={false} />
         )}
 
-        {/* Floating Zzz when asleep */}
-        {puppyElapsed > 90 && (
+        {/* Zzz */}
+        {puppyElapsed > 55 && (
           <div style={{
             position: "absolute", top: "28%", left: "38%", pointerEvents: "none",
-            opacity: Math.min(1, (puppyElapsed - 90) / 30), transition: "opacity 3s ease",
+            opacity: Math.min(1, (puppyElapsed - 55) / 15), transition: "opacity 3s ease",
           }}>
             <span style={{ position: "absolute", fontSize: "clamp(14px, 3vw, 20px)", color: "#a0c8f0", fontFamily: "'Baloo 2', sans-serif", fontWeight: 700, animation: "floatZzz 3s ease-in-out infinite", left: 0, top: 0 }}>Z</span>
             <span style={{ position: "absolute", fontSize: "clamp(11px, 2.2vw, 16px)", color: "#80b0e0", fontFamily: "'Baloo 2', sans-serif", fontWeight: 700, animation: "floatZzz 3s ease-in-out 1s infinite", left: 14, top: -6 }}>z</span>
@@ -360,7 +379,6 @@ export default function ReadToAPuppy() {
         <SpeechBubble show={showBubble} />
       </div>
 
-      {/* ── Controls ── */}
       <div className="ctrl-row">
         <button className={`ctrl-btn ${activeBtn === "green" ? "green-on" : "green-idle"}`} onClick={handleStart} disabled={state === "completed"}>
           <PlayIcon /><span>Start</span>
