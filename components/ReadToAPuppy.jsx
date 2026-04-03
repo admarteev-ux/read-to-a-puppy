@@ -2,20 +2,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ─────────────────────────────────────────────
-   READ TO A PUPPY — v13 (All fixes)
+   READ TO A PUPPY — v14 (iOS Safari fix)
    
-   puppy-full.mp4 layout:
-   0-30s     loop1 (awake) x6
-   30-35s    transition 1→2
-   35-65s    loop2 (drowsy) x6
-   65-70s    transition 2→3
-   70-100s   loop3 (sleepy) x6
-   100-105s  transition 3→4
-   105-135s  loop4 (asleep) x6
-   
-   Eyes fully closed at ~105s (≈ 2 min mark).
-   Fixed: iOS video playback, pause handling,
-   rAF cleanup, duplicate comments removed.
+   Key change: video loop control via setInterval
+   (60fps rAF is unreliable on iOS Safari).
+   All state accessed via refs to avoid stale
+   closures. Periodic play() re-trigger for iOS.
+   visibilitychange listener restarts on tab focus.
    ───────────────────────────────────────────── */
 
 const fmt = (s) => {
@@ -34,18 +27,15 @@ const StopIcon = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2.5" /></svg>
 );
 
-/* ── Phase map: elapsed seconds → video position ──
-   Loops play through all 6 copies (30s) before seeking back.
-   Transitions play their 5s segment once.
-   Eyes fully closed at ~105s mark (~2 minutes). */
+/* ── Phase map ── */
 const PHASES = [
-  { elStart: 0,    elEnd: 30,   vStart: 0,   vEnd: 30,  loop: true },   // awake loop
-  { elStart: 30,   elEnd: 35,   vStart: 30,  vEnd: 35,  loop: false },  // trans 1→2
-  { elStart: 35,   elEnd: 65,   vStart: 35,  vEnd: 65,  loop: true },   // drowsy loop
-  { elStart: 65,   elEnd: 70,   vStart: 65,  vEnd: 70,  loop: false },  // trans 2→3
-  { elStart: 70,   elEnd: 100,  vStart: 70,  vEnd: 100, loop: true },   // sleepy loop
-  { elStart: 100,  elEnd: 105,  vStart: 100, vEnd: 105, loop: false },  // trans 3→4
-  { elStart: 105,  elEnd: 9999, vStart: 105, vEnd: 135, loop: true },   // asleep loop
+  { elStart: 0,    elEnd: 30,   vStart: 0,   vEnd: 30,  loop: true },
+  { elStart: 30,   elEnd: 35,   vStart: 30,  vEnd: 35,  loop: false },
+  { elStart: 35,   elEnd: 65,   vStart: 35,  vEnd: 65,  loop: true },
+  { elStart: 65,   elEnd: 70,   vStart: 65,  vEnd: 70,  loop: false },
+  { elStart: 70,   elEnd: 100,  vStart: 70,  vEnd: 100, loop: true },
+  { elStart: 100,  elEnd: 105,  vStart: 100, vEnd: 105, loop: false },
+  { elStart: 105,  elEnd: 9999, vStart: 105, vEnd: 135, loop: true },
 ];
 
 function getPhase(elapsed) {
@@ -131,101 +121,131 @@ export default function ReadToAPuppy() {
   const [state, setState] = useState("idle");
   const [showBubble, setShowBubble] = useState(false);
   const intervalRef = useRef(null);
+  const videoLoopRef = useRef(null);
   const audioRef = useRef(null);
   const videoRef = useRef(null);
   const phaseIdxRef = useRef(-1);
-  const rafRef = useRef(null);
-  const isPlayingRef = useRef(false);
+
+  // Refs that mirror state — accessible from intervals without stale closures
+  const stateRef = useRef("idle");
+  const elapsedRef = useRef(0);
+  stateRef.current = state;
+  elapsedRef.current = elapsed;
 
   const activeBtn = state === "running" ? "green" : state === "paused" ? "yellow" : state === "completed" ? "red" : null;
   const remaining = Math.max(0, duration - elapsed);
   const puppyElapsed = state === "idle" ? 0 : state === "completed" ? 9999 : elapsed;
 
-  // Reliable play function — handles iOS Safari's play() restrictions
-  const safePlay = useCallback((video) => {
-    if (!video || isPlayingRef.current) return;
-    const playPromise = video.play();
-    if (playPromise !== undefined) {
-      playPromise.then(() => {
-        isPlayingRef.current = true;
-      }).catch(() => {
-        isPlayingRef.current = false;
-      });
-    }
-  }, []);
-
-  const safePause = useCallback((video) => {
-    if (!video) return;
-    video.pause();
-    isPlayingRef.current = false;
-  }, []);
-
-  // Video controller
-  useEffect(() => {
+  // Force play — works around iOS Safari restrictions
+  const forcePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-
-    // Idle: pause and reset
-    if (state === "idle") {
-      safePause(video);
-      cancelAnimationFrame(rafRef.current);
-      video.currentTime = 0;
-      phaseIdxRef.current = -1;
-      return;
+    if (video.paused) {
+      video.play().catch(() => {});
     }
+  }, []);
 
-    // Paused: pause video AND cancel rAF
-    if (state === "paused") {
-      safePause(video);
-      cancelAnimationFrame(rafRef.current);
-      return;
-    }
+  // Video loop controller — runs every 100ms via setInterval (NOT rAF)
+  // setInterval is more reliable than rAF on iOS Safari background/foreground
+  const startVideoLoop = useCallback(() => {
+    // Clear any existing loop
+    if (videoLoopRef.current) clearInterval(videoLoopRef.current);
 
-    // Completed: play asleep loop
-    const phase = state === "completed"
-      ? { ...PHASES[PHASES.length - 1], index: PHASES.length - 1 }
-      : getPhase(puppyElapsed);
+    videoLoopRef.current = setInterval(() => {
+      const video = videoRef.current;
+      const curState = stateRef.current;
+      if (!video) return;
 
-    // Seek if phase changed
-    if (phase.index !== phaseIdxRef.current) {
-      phaseIdxRef.current = phase.index;
-      video.currentTime = phase.vStart;
-      isPlayingRef.current = false;
-      safePlay(video);
-    }
+      // Only manage video when running or completed
+      if (curState !== "running" && curState !== "completed") return;
 
-    // rAF loop — check boundaries and re-trigger play for iOS
-    const tick = () => {
-      const idx = phaseIdxRef.current;
-      if (idx < 0 || idx >= PHASES.length) {
-        rafRef.current = requestAnimationFrame(tick);
-        return;
-      }
-      const p = PHASES[idx];
+      const curElapsed = elapsedRef.current;
+      const phase = curState === "completed"
+        ? { ...PHASES[PHASES.length - 1], index: PHASES.length - 1 }
+        : getPhase(curElapsed);
 
-      // iOS fix: if video stalled, re-trigger play
-      if (video.paused && (state === "running" || state === "completed")) {
-        isPlayingRef.current = false;
-        safePlay(video);
+      // Phase changed — seek
+      if (phase.index !== phaseIdxRef.current) {
+        phaseIdxRef.current = phase.index;
+        video.currentTime = phase.vStart;
+        video.play().catch(() => {});
       }
 
-      // Loop boundary
-      if (video.currentTime >= p.vEnd - 0.1) {
-        if (p.loop) {
-          video.currentTime = p.vStart;
-          // iOS needs re-trigger after seek
-          isPlayingRef.current = false;
-          safePlay(video);
+      // Loop boundary — seek back
+      if (video.currentTime >= phase.vEnd - 0.15) {
+        if (phase.loop) {
+          video.currentTime = phase.vStart;
+          video.play().catch(() => {});
         }
       }
 
-      rafRef.current = requestAnimationFrame(tick);
+      // iOS keepalive: if video somehow paused, restart it
+      if (video.paused) {
+        video.play().catch(() => {});
+      }
+    }, 100);
+  }, []);
+
+  const stopVideoLoop = useCallback(() => {
+    if (videoLoopRef.current) {
+      clearInterval(videoLoopRef.current);
+      videoLoopRef.current = null;
+    }
+  }, []);
+
+  // Start/stop video loop based on state
+  useEffect(() => {
+    if (state === "running" || state === "completed") {
+      startVideoLoop();
+    } else {
+      stopVideoLoop();
+      if (videoRef.current && state === "paused") {
+        videoRef.current.pause();
+      }
+      if (videoRef.current && state === "idle") {
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+        phaseIdxRef.current = -1;
+      }
+    }
+    return () => stopVideoLoop();
+  }, [state, startVideoLoop, stopVideoLoop]);
+
+  // iOS Safari: restart video when page becomes visible again
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        const curState = stateRef.current;
+        if (curState === "running" || curState === "completed") {
+          // Re-trigger video and restart loop
+          const video = videoRef.current;
+          if (video) {
+            video.play().catch(() => {});
+          }
+          startVideoLoop();
+        }
+      }
     };
 
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [puppyElapsed, state, safePlay, safePause]);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [startVideoLoop]);
+
+  // iOS Safari: also handle page focus events
+  useEffect(() => {
+    const handleFocus = () => {
+      const curState = stateRef.current;
+      if (curState === "running" || curState === "completed") {
+        forcePlay();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("touchstart", handleFocus, { once: false, passive: true });
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("touchstart", handleFocus);
+    };
+  }, [forcePlay]);
 
   // Timer
   useEffect(() => {
@@ -245,20 +265,18 @@ export default function ReadToAPuppy() {
     if (state === "idle") {
       setElapsed(0); setShowBubble(true);
       phaseIdxRef.current = -1;
-      isPlayingRef.current = false;
-      if (videoRef.current) videoRef.current.currentTime = 0;
+      if (videoRef.current) {
+        videoRef.current.currentTime = 0;
+        videoRef.current.play().catch(() => {});
+      }
       if (audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.play().catch(() => {}); }
       setTimeout(() => setShowBubble(false), 5000);
       setState("running");
     } else if (state === "paused") {
-      // Resume: re-trigger video play
-      if (videoRef.current) {
-        isPlayingRef.current = false;
-        safePlay(videoRef.current);
-      }
+      if (videoRef.current) videoRef.current.play().catch(() => {});
       setState("running");
     }
-  }, [state, safePlay]);
+  }, [state]);
 
   const handlePause = useCallback(() => {
     if (state === "running") setState("paused");
@@ -267,17 +285,17 @@ export default function ReadToAPuppy() {
   const handleStop = useCallback(() => {
     if (state === "running" || state === "paused") {
       clearInterval(intervalRef.current);
-      cancelAnimationFrame(rafRef.current);
       setState("completed");
       setShowBubble(false);
     } else if (state === "completed") {
-      cancelAnimationFrame(rafRef.current);
       setState("idle");
       setElapsed(0);
       setShowBubble(false);
       phaseIdxRef.current = -1;
-      isPlayingRef.current = false;
-      if (videoRef.current) videoRef.current.currentTime = 0;
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+      }
     }
   }, [state]);
 
@@ -346,7 +364,6 @@ export default function ReadToAPuppy() {
       <h1 className="site-title" style={{ marginBottom: 8 }}>🌙 Read to a Puppy</h1>
 
       <div className="scene-container">
-        {/* iOS fix: playsinline + webkit-playsinline required */}
         <video
           ref={videoRef}
           muted playsInline
@@ -357,7 +374,6 @@ export default function ReadToAPuppy() {
           <source src="/video/puppy-full.mp4" type="video/mp4" />
         </video>
 
-        {/* Zzz when entering asleep phase */}
         {(puppyElapsed > 100 || state === "completed") && (
           <div style={{
             position: "absolute", top: "28%", left: "38%", pointerEvents: "none",
