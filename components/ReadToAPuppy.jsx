@@ -2,14 +2,23 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ─────────────────────────────────────────────
-   READ TO A PUPPY — v8 (Video state machine)
+   READ TO A PUPPY — v9 (Single video approach)
    
-   Architecture:
-   - Each sleep stage has a LOOP video (plays forever)
-   - Between stages, a TRANSITION video plays once
-   - Sequence: loop1 → trans1→2 → loop2 → trans2→3 → ...
-   - Falls back to static images if video not available
-   - Eyes fully closed at 2 minutes
+   One concatenated video file. Component seeks 
+   to the right position based on elapsed time.
+   No black frames between segments.
+   
+   Video layout (puppy-full.mp4):
+   0:00 - 10:00  → awake loop (copy 1)
+   10:00 - 20:00 → awake loop (copy 2)
+   20:00 - 25:00 → transition awake→drowsy
+   25:00 - 35:00 → drowsy loop (copy 1)
+   35:00 - 45:00 → drowsy loop (copy 2)
+   45:00 - 50:00 → transition drowsy→sleepy
+   50:00 - 60:00 → sleepy loop (copy 1)
+   60:00 - 70:00 → sleepy loop (copy 2)
+   
+   For stages without video yet → fallback images
    ───────────────────────────────────────────── */
 
 const fmt = (s) => {
@@ -28,50 +37,42 @@ const StopIcon = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2.5" /></svg>
 );
 
-/* ── Media assets configuration ──
-   Set to null if video not yet available — will use fallback image */
-const STAGES = [
-  { loop: "/video/puppy-awake-loop.mp4",   fallbackImg: "/images/puppy-1-awake.png" },
-  { loop: "/video/puppy-drowsy-loop.mp4",  fallbackImg: "/images/puppy-2-drowsy.png" },
-  { loop: "/video/puppy-sleepy-loop.mp4",  fallbackImg: "/images/puppy-3-sleepy.png" },
-  { loop: null,                             fallbackImg: "/images/puppy-4-almost.png" },
-  { loop: null,                             fallbackImg: "/images/puppy-5-asleep.png" },
-];
+/* ── Video segment map (seconds within puppy-full.mp4) ── */
+const SEGMENTS = {
+  awakeLoop:      { start: 0,    end: 10,   loop: true },
+  transAwakeDrowsy: { start: 20, end: 25,   loop: false },
+  drowsyLoop:     { start: 25,   end: 35,   loop: true },
+  transDrowsySleepy: { start: 45, end: 50,  loop: false },
+  sleepyLoop:     { start: 50,   end: 60,   loop: true },
+  // Future segments (not in video yet):
+  // transSleepyAlmost: { start: X, end: Y, loop: false },
+  // almostLoop:     { start: X, end: Y, loop: true },
+  // transAlmostAsleep: { start: X, end: Y, loop: false },
+  // asleepLoop:     { start: X, end: Y, loop: true },
+};
 
-const TRANSITIONS = [
-  "/video/puppy-transition-1-2.mp4",  // awake → drowsy
-  "/video/puppy-transition-2-3.mp4",  // drowsy → sleepy
-  null,                                // sleepy → almost (not yet)
-  null,                                // almost → asleep (not yet)
-];
-
-/* Timeline: when each stage starts (in elapsed seconds)
-   0-20s    → stage 0 (awake loop)
-   20-25s   → transition 0→1
-   25-47s   → stage 1 (drowsy loop)
-   47-52s   → transition 1→2
-   52-72s   → stage 2 (sleepy loop)
-   72-77s   → transition 2→3
-   77-95s   → stage 3 (almost loop)
-   95-100s  → transition 3→4
-   100+     → stage 4 (asleep loop)
+/* ── Timeline: maps elapsed seconds → video segment ──
+   0-20s    → awakeLoop (loops internally)
+   20-25s   → transAwakeDrowsy (plays once)
+   25-47s   → drowsyLoop (loops internally)
+   47-52s   → transDrowsySleepy (plays once)
+   52-120s  → sleepyLoop (loops internally)
+   
+   For stages without video → show fallback image
 */
 const TIMELINE = [
-  { type: "loop",  stage: 0, start: 0,   end: 20  },
-  { type: "trans", index: 0, start: 20,  end: 25  },
-  { type: "loop",  stage: 1, start: 25,  end: 47  },
-  { type: "trans", index: 1, start: 47,  end: 52  },
-  { type: "loop",  stage: 2, start: 52,  end: 72  },
-  { type: "trans", index: 2, start: 72,  end: 77  },
-  { type: "loop",  stage: 3, start: 77,  end: 95  },
-  { type: "trans", index: 3, start: 95,  end: 100 },
-  { type: "loop",  stage: 4, start: 100, end: 9999 },
+  { elapsed: 0,   segment: "awakeLoop",          fallback: null },
+  { elapsed: 20,  segment: "transAwakeDrowsy",   fallback: null },
+  { elapsed: 25,  segment: "drowsyLoop",         fallback: null },
+  { elapsed: 47,  segment: "transDrowsySleepy",  fallback: null },
+  { elapsed: 52,  segment: "sleepyLoop",          fallback: null },
+  { elapsed: 72,  segment: null,                  fallback: "/images/puppy-4-almost.png" },
+  { elapsed: 97,  segment: null,                  fallback: "/images/puppy-5-asleep.png" },
 ];
 
-function getCurrentPhase(elapsedSec) {
-  const t = elapsedSec || 0;
+function getTimelinePhase(elapsedSec) {
   for (let i = TIMELINE.length - 1; i >= 0; i--) {
-    if (t >= TIMELINE[i].start) return TIMELINE[i];
+    if (elapsedSec >= TIMELINE[i].elapsed) return TIMELINE[i];
   }
   return TIMELINE[0];
 }
@@ -151,34 +152,68 @@ export default function ReadToAPuppy() {
   const [elapsed, setElapsed] = useState(0);
   const [state, setState] = useState("idle");
   const [showBubble, setShowBubble] = useState(false);
-  const [activeMedia, setActiveMedia] = useState({ type: "loop", stage: 0 });
+  const [currentSegmentKey, setCurrentSegmentKey] = useState("awakeLoop");
+  const [showFallback, setShowFallback] = useState(null);
   const intervalRef = useRef(null);
   const audioRef = useRef(null);
-  const transVideoRef = useRef(null);
+  const videoRef = useRef(null);
 
   const activeBtn = state === "running" ? "green" : state === "paused" ? "yellow" : state === "completed" ? "red" : null;
   const remaining = Math.max(0, duration - elapsed);
   const puppyElapsed = state === "idle" ? 0 : state === "completed" ? 120 : elapsed;
 
-  // Determine current phase from timeline
+  // Video playback controller
   useEffect(() => {
-    const phase = getCurrentPhase(puppyElapsed);
-    setActiveMedia(prev => {
-      // Only update if phase actually changed
-      if (phase.type === prev.type &&
-          ((phase.type === "loop" && phase.stage === prev.stage) ||
-           (phase.type === "trans" && phase.index === prev.index))) {
-        return prev;
+    const video = videoRef.current;
+    if (!video) return;
+
+    const phase = getTimelinePhase(puppyElapsed);
+
+    // Fallback image (no video for this phase)
+    if (!phase.segment) {
+      video.pause();
+      setShowFallback(phase.fallback);
+      setCurrentSegmentKey(null);
+      return;
+    }
+
+    setShowFallback(null);
+    const seg = SEGMENTS[phase.segment];
+    if (!seg) return;
+
+    // Only seek if segment changed
+    if (phase.segment !== currentSegmentKey) {
+      setCurrentSegmentKey(phase.segment);
+      video.currentTime = seg.start;
+      if (state === "running") video.play().catch(() => {});
+    }
+
+    // Handle looping within segment
+    const handleTimeUpdate = () => {
+      if (video.currentTime >= seg.end - 0.05) {
+        if (seg.loop) {
+          video.currentTime = seg.start;
+        }
+        // For transitions: just let it reach the end, timeline will advance
       }
-      return phase;
-    });
-  }, [puppyElapsed]);
+    };
 
-  // When transition video ends, it naturally moves to next phase via elapsed time
-  const handleTransitionEnd = useCallback(() => {
-    // Transition finished — elapsed time will naturally advance to next loop phase
-  }, []);
+    video.addEventListener("timeupdate", handleTimeUpdate);
+    return () => video.removeEventListener("timeupdate", handleTimeUpdate);
+  }, [puppyElapsed, currentSegmentKey, state]);
 
+  // Pause/resume video with timer
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (state === "running" && !showFallback) {
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+    }
+  }, [state, showFallback]);
+
+  // Timer
   useEffect(() => {
     if (state === "running") {
       intervalRef.current = setInterval(() => {
@@ -194,7 +229,9 @@ export default function ReadToAPuppy() {
   const handleStart = useCallback(() => {
     if (state === "completed") return;
     if (state === "idle") {
-      setElapsed(0); setShowBubble(true);
+      setElapsed(0); setShowBubble(true); setShowFallback(null);
+      setCurrentSegmentKey("awakeLoop");
+      if (videoRef.current) { videoRef.current.currentTime = 0; }
       if (audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.play().catch(() => {}); }
       setTimeout(() => setShowBubble(false), 5000);
       setState("running");
@@ -210,65 +247,10 @@ export default function ReadToAPuppy() {
       clearInterval(intervalRef.current); setState("completed"); setShowBubble(false);
     } else if (state === "completed") {
       setState("idle"); setElapsed(0); setShowBubble(false);
-      setActiveMedia({ type: "loop", stage: 0 });
+      setShowFallback(null); setCurrentSegmentKey("awakeLoop");
+      if (videoRef.current) { videoRef.current.currentTime = 0; }
     }
   }, [state]);
-
-  // Build the visual layers
-  const renderMedia = () => {
-    const layers = [];
-
-    // Render all loop stages — only the active one is visible (opacity 1), rest hidden (opacity 0)
-    STAGES.forEach((s, i) => {
-      const isActive = activeMedia.type === "loop" && activeMedia.stage === i;
-      const opacity = isActive ? 1 : 0;
-
-      if (s.loop) {
-        layers.push(
-          <video
-            key={`loop-${i}`}
-            autoPlay loop muted playsInline
-            className="puppy-layer"
-            style={{ opacity }}
-          >
-            <source src={s.loop} type="video/mp4" />
-          </video>
-        );
-      } else {
-        layers.push(
-          <img
-            key={`img-${i}`}
-            src={s.fallbackImg}
-            alt={`Puppy stage ${i + 1}`}
-            className="puppy-layer"
-            style={{ opacity }}
-            draggable={false}
-          />
-        );
-      }
-    });
-
-    // Transition video on top — hides everything underneath while playing
-    if (activeMedia.type === "trans") {
-      const transSrc = TRANSITIONS[activeMedia.index];
-      if (transSrc) {
-        layers.push(
-          <video
-            key={`trans-${activeMedia.index}`}
-            ref={transVideoRef}
-            autoPlay muted playsInline
-            className="puppy-layer"
-            style={{ opacity: 1, zIndex: 10 }}
-            onEnded={handleTransitionEnd}
-          >
-            <source src={transSrc} type="video/mp4" />
-          </video>
-        );
-      }
-    }
-
-    return layers;
-  };
 
   return (
     <div style={{
@@ -336,7 +318,26 @@ export default function ReadToAPuppy() {
 
       {/* ── Scene ── */}
       <div className="scene-container">
-        {renderMedia()}
+        {/* Single video element — all segments concatenated */}
+        <video
+          ref={videoRef}
+          muted playsInline preload="auto"
+          className="puppy-layer"
+          style={{ opacity: showFallback ? 0 : 1 }}
+        >
+          <source src="/video/puppy-full.mp4" type="video/mp4" />
+        </video>
+
+        {/* Fallback images for stages without video */}
+        {showFallback && (
+          <img
+            src={showFallback}
+            alt="Puppy"
+            className="puppy-layer"
+            style={{ opacity: 1 }}
+            draggable={false}
+          />
+        )}
 
         {/* Floating Zzz when asleep */}
         {puppyElapsed > 90 && (
