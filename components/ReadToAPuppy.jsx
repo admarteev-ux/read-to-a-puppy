@@ -320,7 +320,7 @@ export default function ReadToAPuppy() {
             className="puppy-layer"
             style={{ opacity: opacities[0] }}
           >
-            <source src="/video/puppy-awake.mp4" type="video/mp4" />
+            <source src="/video/puppy-awake-loop.mp4" type="video/mp4" />
           </video>
           {/* Image layers — sleep progression */}
           {PUPPY_IMAGES.slice(1).map((src, i) => (
