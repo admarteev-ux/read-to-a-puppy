@@ -265,7 +265,6 @@ export default function ReadToAPuppy() {
           </video>
         );
       }
-      }
     }
 
     return layers;
