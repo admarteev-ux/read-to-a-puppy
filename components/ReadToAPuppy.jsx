@@ -212,6 +212,37 @@ export default function ReadToAPuppy() {
       <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=Baloo+2:wght@600;700&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes fadeInUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes puppyBreathe {
+          0%, 100% { transform: scaleY(1) scaleX(1); }
+          50% { transform: scaleY(1.012) scaleX(1.005); }
+        }
+        @keyframes puppyBreatheSlow {
+          0%, 100% { transform: scaleY(1) scaleX(1); }
+          50% { transform: scaleY(1.008) scaleX(1.003); }
+        }
+        @keyframes gentleRock {
+          0%, 100% { transform: rotate(0deg); }
+          25% { transform: rotate(0.4deg); }
+          75% { transform: rotate(-0.4deg); }
+        }
+        @keyframes gentleRockSlow {
+          0%, 100% { transform: rotate(0deg); }
+          25% { transform: rotate(0.2deg); }
+          75% { transform: rotate(-0.2deg); }
+        }
+        @keyframes warmGlow {
+          0%, 100% { filter: brightness(1) saturate(1); }
+          50% { filter: brightness(1.03) saturate(1.05); }
+        }
+        @keyframes starSparkle {
+          0%, 100% { opacity: 0.08; }
+          50% { opacity: 0.2; }
+        }
+        @keyframes floatZzz {
+          0% { transform: translateY(0) scale(1); opacity: 0; }
+          20% { opacity: 0.7; }
+          100% { transform: translateY(-40px) scale(1.3); opacity: 0; }
+        }
 
         .scene-container {
           position: relative; width: 100%; max-width: 540px;
@@ -261,18 +292,78 @@ export default function ReadToAPuppy() {
 
       <h1 className="site-title" style={{ marginBottom: 8 }}>🌙 Read to a Puppy</h1>
 
-      {/* ── Scene: layered puppy images + lamp post overlay ── */}
+      {/* ── Scene: layered puppy images + living animations ── */}
       <div className="scene-container">
-        {PUPPY_IMAGES.map((src, i) => (
-          <img
-            key={i}
-            src={src}
-            alt={`Puppy stage ${i + 1}`}
-            className="puppy-layer"
-            style={{ opacity: opacities[i] }}
-            draggable={false}
-          />
-        ))}
+        {/* Breathing + rocking wrapper */}
+        <div style={{
+          position: "absolute", inset: 0,
+          transformOrigin: "50% 85%",
+          animation: puppyElapsed < 70
+            ? "puppyBreathe 3.5s ease-in-out infinite, gentleRock 5s ease-in-out infinite, warmGlow 4s ease-in-out infinite"
+            : "puppyBreatheSlow 5s ease-in-out infinite, gentleRockSlow 8s ease-in-out infinite",
+        }}>
+          {PUPPY_IMAGES.map((src, i) => (
+            <img
+              key={i}
+              src={src}
+              alt={`Puppy stage ${i + 1}`}
+              className="puppy-layer"
+              style={{ opacity: opacities[i] }}
+              draggable={false}
+            />
+          ))}
+        </div>
+
+        {/* Sparkle overlay dots (twinkle on top of image) */}
+        <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+          {[
+            { x: "15%", y: "12%", d: "0s", s: 5 },
+            { x: "78%", y: "8%", d: "1.2s", s: 4 },
+            { x: "88%", y: "25%", d: "2.5s", s: 3 },
+            { x: "8%", y: "30%", d: "0.8s", s: 3.5 },
+            { x: "55%", y: "5%", d: "1.8s", s: 4.5 },
+            { x: "35%", y: "3%", d: "3s", s: 3 },
+            { x: "92%", y: "15%", d: "0.4s", s: 2.5 },
+            { x: "22%", y: "20%", d: "2s", s: 3 },
+          ].map((star, i) => (
+            <div key={i} style={{
+              position: "absolute", left: star.x, top: star.y,
+              width: star.s, height: star.s, borderRadius: "50%",
+              background: "white",
+              animation: `starSparkle ${2.5 + i * 0.3}s ease-in-out ${star.d} infinite`,
+            }} />
+          ))}
+        </div>
+
+        {/* Floating Zzz when asleep */}
+        {puppyElapsed > 90 && (
+          <div style={{
+            position: "absolute", top: "15%", right: "20%",
+            pointerEvents: "none",
+            opacity: Math.min(1, (puppyElapsed - 90) / 30),
+            transition: "opacity 3s ease",
+          }}>
+            <span style={{
+              position: "absolute", fontSize: "clamp(18px, 4vw, 28px)", color: "#a0c8f0",
+              fontFamily: "'Baloo 2', sans-serif", fontWeight: 700,
+              animation: "floatZzz 3s ease-in-out infinite",
+              left: 0, top: 0,
+            }}>Z</span>
+            <span style={{
+              position: "absolute", fontSize: "clamp(14px, 3vw, 22px)", color: "#80b0e0",
+              fontFamily: "'Baloo 2', sans-serif", fontWeight: 700,
+              animation: "floatZzz 3s ease-in-out 1s infinite",
+              left: 20, top: -10,
+            }}>z</span>
+            <span style={{
+              position: "absolute", fontSize: "clamp(10px, 2vw, 16px)", color: "#6898c8",
+              fontFamily: "'Baloo 2', sans-serif", fontWeight: 700,
+              animation: "floatZzz 3s ease-in-out 2s infinite",
+              left: 36, top: -18,
+            }}>z</span>
+          </div>
+        )}
+
         <LampPost activeBtn={activeBtn} />
         <SpeechBubble show={showBubble} />
       </div>
