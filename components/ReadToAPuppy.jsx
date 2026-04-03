@@ -152,7 +152,6 @@ export default function ReadToAPuppy() {
   const [elapsed, setElapsed] = useState(0);
   const [state, setState] = useState("idle");
   const [showBubble, setShowBubble] = useState(false);
-  const [currentSegmentKey, setCurrentSegmentKey] = useState("awakeLoop");
   const [showFallback, setShowFallback] = useState(null);
   const intervalRef = useRef(null);
   const audioRef = useRef(null);
@@ -162,7 +161,10 @@ export default function ReadToAPuppy() {
   const remaining = Math.max(0, duration - elapsed);
   const puppyElapsed = state === "idle" ? 0 : state === "completed" ? 120 : elapsed;
 
-  // Video playback controller
+  // Video playback controller — uses requestAnimationFrame for tight loops
+  const segKeyRef = useRef("awakeLoop");
+  const rafRef = useRef(null);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -172,8 +174,9 @@ export default function ReadToAPuppy() {
     // Fallback image (no video for this phase)
     if (!phase.segment) {
       video.pause();
+      cancelAnimationFrame(rafRef.current);
       setShowFallback(phase.fallback);
-      setCurrentSegmentKey(null);
+      segKeyRef.current = null;
       return;
     }
 
@@ -181,26 +184,28 @@ export default function ReadToAPuppy() {
     const seg = SEGMENTS[phase.segment];
     if (!seg) return;
 
-    // Only seek if segment changed
-    if (phase.segment !== currentSegmentKey) {
-      setCurrentSegmentKey(phase.segment);
+    // Seek if segment changed
+    if (phase.segment !== segKeyRef.current) {
+      segKeyRef.current = phase.segment;
       video.currentTime = seg.start;
       if (state === "running") video.play().catch(() => {});
     }
 
-    // Handle looping within segment
-    const handleTimeUpdate = () => {
-      if (video.currentTime >= seg.end - 0.05) {
-        if (seg.loop) {
-          video.currentTime = seg.start;
+    // Tight loop check via requestAnimationFrame
+    const checkLoop = () => {
+      if (!video) return;
+      const curSeg = SEGMENTS[segKeyRef.current];
+      if (curSeg && video.currentTime >= curSeg.end - 0.15) {
+        if (curSeg.loop) {
+          video.currentTime = curSeg.start;
         }
-        // For transitions: just let it reach the end, timeline will advance
       }
+      rafRef.current = requestAnimationFrame(checkLoop);
     };
 
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    return () => video.removeEventListener("timeupdate", handleTimeUpdate);
-  }, [puppyElapsed, currentSegmentKey, state]);
+    rafRef.current = requestAnimationFrame(checkLoop);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [puppyElapsed, state]);
 
   // Pause/resume video with timer
   useEffect(() => {
@@ -247,7 +252,7 @@ export default function ReadToAPuppy() {
       clearInterval(intervalRef.current); setState("completed"); setShowBubble(false);
     } else if (state === "completed") {
       setState("idle"); setElapsed(0); setShowBubble(false);
-      setShowFallback(null); setCurrentSegmentKey("awakeLoop");
+      setShowFallback(null); segKeyRef.current = "awakeLoop";
       if (videoRef.current) { videoRef.current.currentTime = 0; }
     }
   }, [state]);
