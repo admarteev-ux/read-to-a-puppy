@@ -33,14 +33,14 @@ const StopIcon = () => (
 const STAGES = [
   { loop: "/video/puppy-awake-loop.mp4",   fallbackImg: "/images/puppy-1-awake.png" },
   { loop: "/video/puppy-drowsy-loop.mp4",  fallbackImg: "/images/puppy-2-drowsy.png" },
-  { loop: null,                             fallbackImg: "/images/puppy-3-sleepy.png" },
+  { loop: "/video/puppy-sleepy-loop.mp4",  fallbackImg: "/images/puppy-3-sleepy.png" },
   { loop: null,                             fallbackImg: "/images/puppy-4-almost.png" },
   { loop: null,                             fallbackImg: "/images/puppy-5-asleep.png" },
 ];
 
 const TRANSITIONS = [
   "/video/puppy-transition-1-2.mp4",  // awake → drowsy
-  null,                                // drowsy → sleepy (not yet)
+  "/video/puppy-transition-2-3.mp4",  // drowsy → sleepy
   null,                                // sleepy → almost (not yet)
   null,                                // almost → asleep (not yet)
 ];
