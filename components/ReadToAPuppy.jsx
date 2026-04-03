@@ -218,14 +218,10 @@ export default function ReadToAPuppy() {
   const renderMedia = () => {
     const layers = [];
 
-    // Always render all loop stages (opacity controlled)
+    // Render all loop stages — only the active one is visible (opacity 1), rest hidden (opacity 0)
     STAGES.forEach((s, i) => {
       const isActive = activeMedia.type === "loop" && activeMedia.stage === i;
-      // Also show during adjacent transitions
-      const isTransOut = activeMedia.type === "trans" && activeMedia.index === i;
-      const isTransIn = activeMedia.type === "trans" && activeMedia.index === i - 1;
-      const show = isActive || isTransOut || isTransIn;
-      const opacity = isActive ? 1 : isTransOut ? 0.5 : isTransIn ? 0.5 : 0;
+      const opacity = isActive ? 1 : 0;
 
       if (s.loop) {
         layers.push(
@@ -233,7 +229,7 @@ export default function ReadToAPuppy() {
             key={`loop-${i}`}
             autoPlay loop muted playsInline
             className="puppy-layer"
-            style={{ opacity, transition: "opacity 1.5s ease" }}
+            style={{ opacity }}
           >
             <source src={s.loop} type="video/mp4" />
           </video>
@@ -245,14 +241,14 @@ export default function ReadToAPuppy() {
             src={s.fallbackImg}
             alt={`Puppy stage ${i + 1}`}
             className="puppy-layer"
-            style={{ opacity, transition: "opacity 1.5s ease" }}
+            style={{ opacity }}
             draggable={false}
           />
         );
       }
     });
 
-    // Overlay transition video on top when active
+    // Transition video on top — hides everything underneath while playing
     if (activeMedia.type === "trans") {
       const transSrc = TRANSITIONS[activeMedia.index];
       if (transSrc) {
@@ -268,6 +264,7 @@ export default function ReadToAPuppy() {
             <source src={transSrc} type="video/mp4" />
           </video>
         );
+      }
       }
     }
 
