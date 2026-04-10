@@ -40,45 +40,7 @@ const POSTER_IMAGE = "/images/puppy-1-awake.png";
 // Fallback when video ends but session continues
 const ASLEEP_IMAGE = "/images/puppy-4-asleep.png";
 
-/* ── Lamp Post ── */
-const LampPost = ({ activeBtn }) => {
-  const glow = (id, on) => on ? `url(#${id})` : "none";
-  return (
-    <div style={{
-      position: "absolute", left: "4%", top: "28%", width: "8%", height: "60%",
-      display: "flex", flexDirection: "column", alignItems: "center", pointerEvents: "none",
-    }}>
-      <svg viewBox="0 0 60 300" style={{ width: "100%", height: "100%" }}>
-        <defs>
-          <filter id="glG" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="6" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-          <filter id="glY" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="6" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-          <filter id="glR" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="6" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-        </defs>
-        <rect x="25" y="10" width="10" height="280" rx="4" fill="#5a4a3a" />
-        <rect x="27" y="10" width="6" height="280" rx="3" fill="#6b5a48" />
-        <rect x="12" y="15" width="36" height="110" rx="12" fill="#4a3a2e" />
-        <rect x="15" y="18" width="30" height="104" rx="10" fill="#5a4a3a" />
-        <circle cx="30" cy="12" r="6" fill="#5a4a3a" />
-        <circle cx="30" cy="12" r="3.5" fill="#6b5a48" />
-        <g filter={glow("glG", activeBtn === "green")}>
-          <circle cx="30" cy="42" r="12" fill={activeBtn === "green" ? "#66ff88" : "#2a5a35"} />
-          <circle cx="30" cy="42" r="8" fill={activeBtn === "green" ? "#88ffaa" : "#3a7a45"} />
-          {activeBtn === "green" && <circle cx="30" cy="42" r="18" fill="#66ff88" opacity="0.2" />}
-        </g>
-        <g filter={glow("glY", activeBtn === "yellow")}>
-          <circle cx="30" cy="72" r="12" fill={activeBtn === "yellow" ? "#ffee55" : "#5a5530"} />
-          <circle cx="30" cy="72" r="8" fill={activeBtn === "yellow" ? "#fff888" : "#7a7540"} />
-          {activeBtn === "yellow" && <circle cx="30" cy="72" r="18" fill="#ffee55" opacity="0.2" />}
-        </g>
-        <g filter={glow("glR", activeBtn === "red")}>
-          <circle cx="30" cy="102" r="12" fill={activeBtn === "red" ? "#ff5555" : "#5a2a2a"} />
-          <circle cx="30" cy="102" r="8" fill={activeBtn === "red" ? "#ff8888" : "#7a3a3a"} />
-          {activeBtn === "red" && <circle cx="30" cy="102" r="18" fill="#ff5555" opacity="0.2" />}
-        </g>
-      </svg>
-    </div>
-  );
-};
+/* LampPost removed per client request */
 
 /* ── Speech Bubble ── */
 const SpeechBubble = ({ show }) => (
@@ -260,12 +222,12 @@ export default function ReadToAPuppy() {
         .ctrl-btn:active { transform:scale(0.92); }
         .ctrl-btn:disabled { opacity:0.25; cursor:default; }
         .ctrl-btn:disabled:active { transform:none; }
-        .ctrl-btn.green-on { background:radial-gradient(circle,rgba(102,255,136,0.3),rgba(102,255,136,0.06)); border-color:#66ff88; box-shadow:0 0 30px rgba(102,255,136,0.4); color:#b0ffc0; }
-        .ctrl-btn.yellow-on { background:radial-gradient(circle,rgba(255,238,85,0.3),rgba(255,238,85,0.06)); border-color:#ffee55; box-shadow:0 0 30px rgba(255,238,85,0.4); color:#fff8c0; }
-        .ctrl-btn.red-on { background:radial-gradient(circle,rgba(255,85,85,0.3),rgba(255,85,85,0.06)); border-color:#ff5555; box-shadow:0 0 30px rgba(255,85,85,0.4); color:#ffc0c0; }
-        .ctrl-btn.green-idle:hover { border-color:rgba(102,255,136,0.5); background:rgba(102,255,136,0.1); }
-        .ctrl-btn.yellow-idle:hover { border-color:rgba(255,238,85,0.5); background:rgba(255,238,85,0.1); }
-        .ctrl-btn.red-idle:hover { border-color:rgba(255,85,85,0.5); background:rgba(255,85,85,0.1); }
+        .ctrl-btn.green-on { background:radial-gradient(circle,rgba(102,255,136,0.3),rgba(102,255,136,0.06)); border:7px solid #66ff88; box-shadow:0 0 30px rgba(102,255,136,0.4); color:#b0ffc0; }
+        .ctrl-btn.yellow-on { background:radial-gradient(circle,rgba(255,238,85,0.3),rgba(255,238,85,0.06)); border:7px solid #ffee55; box-shadow:0 0 30px rgba(255,238,85,0.4); color:#fff8c0; }
+        .ctrl-btn.red-on { background:radial-gradient(circle,rgba(255,85,85,0.3),rgba(255,85,85,0.06)); border:7px solid #ff5555; box-shadow:0 0 30px rgba(255,85,85,0.4); color:#ffc0c0; }
+        .ctrl-btn.green-idle:hover { border:7px solid rgba(102,255,136,0.5); background:rgba(102,255,136,0.1); }
+        .ctrl-btn.yellow-idle:hover { border:7px solid rgba(255,238,85,0.5); background:rgba(255,238,85,0.1); }
+        .ctrl-btn.red-idle:hover { border:7px solid rgba(255,85,85,0.5); background:rgba(255,85,85,0.1); }
         .preset-btn { padding:10px 22px; border-radius:28px; border:2px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.08); color:#c8daf0; font-family:'Quicksand',sans-serif; font-size:15px; font-weight:600; cursor:pointer; transition:all 0.3s ease; backdrop-filter:blur(4px); }
         .preset-btn:hover { background:rgba(255,255,255,0.15); border-color:rgba(255,255,255,0.35); }
         .preset-btn.active { background:rgba(110,180,255,0.25); border-color:rgba(110,180,255,0.6); color:#fff; }
@@ -335,7 +297,6 @@ export default function ReadToAPuppy() {
           </div>
         )}
 
-        <LampPost activeBtn={activeBtn} />
         <SpeechBubble show={showBubble} />
       </div>
 
